@@ -36,7 +36,10 @@ public interface AccountBalanceManagement {
 
 	UnitReservation terminateRequest(String sessionId, String userId, long requestedAmount, long usedAmount, int requestNumber);
 
-	void dump();
+	void dump(String usersRegExp);
 	
-	boolean addUser(String userId, long balance); 
+	boolean addUser(String userId, long balance);
+	
+	void setBypass(boolean bypass);
+
 }

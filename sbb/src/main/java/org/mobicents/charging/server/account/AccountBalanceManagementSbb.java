@@ -22,6 +22,7 @@
 
 package org.mobicents.charging.server.account;
 
+import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
 
 import javax.slee.Sbb;
@@ -42,12 +43,15 @@ public abstract class AccountBalanceManagementSbb extends BaseSbb implements Acc
 	private Tracer tracer;
 	private SbbContextExt sbbContext;
 
-	private static ConcurrentHashMap<String, Long> userBalance;
+	// If set to true, no balance is verified for any user.
+	private boolean bypass = false;
+	
+	private static ConcurrentHashMap<String, Long> userBalance = new ConcurrentHashMap<String, Long>();
 
 	private static ConcurrentHashMap<String, Long> userUsedUnits = new ConcurrentHashMap<String, Long>();
 	private static ConcurrentHashMap<String, Long> userReservedUnits = new ConcurrentHashMap<String, Long>();
 
-	// --------------------------- SBB LO callbacks ---------------------------
+  // --------------------------- SBB LO callbacks ---------------------------
 
 	/*
 	 * Initial Request Handling
@@ -65,6 +69,10 @@ public abstract class AccountBalanceManagementSbb extends BaseSbb implements Acc
 	{
 		tracer.info(" [>>] Received an Initial Request to Account and Balance Management SBB.");
 
+		if (bypass) {
+		  return reserveUnits(sessionId, userId, requestedAmount, Long.MAX_VALUE);
+		}
+		
 		// get user current balance 
 		Long units = userBalance.get(userId);
 
@@ -106,7 +114,11 @@ public abstract class AccountBalanceManagementSbb extends BaseSbb implements Acc
 
 		checkUsedUnits(userId, usedAmount, units);
 
-		if (units <= 0) {
+    if (bypass) {
+      return reserveUnits(sessionId, userId, requestedAmount, Long.MAX_VALUE);
+    }
+
+    if (units <= 0) {
 			return new UnitReservation(503L, "No Units Available", sessionId, System.currentTimeMillis());
 		}
 		else {
@@ -148,7 +160,7 @@ public abstract class AccountBalanceManagementSbb extends BaseSbb implements Acc
 	public void setSbbContext(SbbContext context) {
 		this.tracer = context.getTracer("CS-ABMF");
 		this.sbbContext = (SbbContextExt) context;
-	}
+  }
 
 	/*
 	 * (non-Javadoc)
@@ -160,12 +172,14 @@ public abstract class AccountBalanceManagementSbb extends BaseSbb implements Acc
 		this.tracer = null;
 	}
 
-	public void dump() {
+	public void dump(String usersRegExp) {
 		tracer.info(String.format("%20s | %10s | %10s | %10s |",  "User ID", "Balance", "Reserved", "Used"));
 		tracer.info("---------------------+------------+------------+------------+");
 		for (String user : userBalance.keySet()) {
-			tracer.info(String.format("%20s | %10s | %10s | %10s |",  user, userBalance.get(user), userReservedUnits.get(user),
-					userUsedUnits.get(user)));
+		  if(user.matches(usersRegExp)) {
+		    tracer.info(String.format("%20s | %10s | %10s | %10s |",  user, userBalance.get(user), userReservedUnits.get(user),
+		        userUsedUnits.get(user)));
+		  }
 		}
 	}
 
@@ -198,9 +212,9 @@ public abstract class AccountBalanceManagementSbb extends BaseSbb implements Acc
 	}
 
 	private void checkUsedUnits(String userId, long usedAmount, long availableAmount) {
-		Long reservedUnits = userReservedUnits.get(userId);
+		Long reservedUnits = userReservedUnits.remove(userId);
 
-		Long nonUsedUnits = reservedUnits - usedAmount;
+		Long nonUsedUnits = (reservedUnits == null ? 0 : reservedUnits)- usedAmount;
 
 		if (nonUsedUnits < 0) {
 			tracer.warning(" [!!] User used more than granted units.");
@@ -216,5 +230,9 @@ public abstract class AccountBalanceManagementSbb extends BaseSbb implements Acc
 		Long oldUsedUnits = userUsedUnits.get(userId);
 		userUsedUnits.put(userId, oldUsedUnits != null ? oldUsedUnits + usedAmount : usedAmount);
 	}
+
+	public void setBypass(boolean bypass) {
+    this.bypass = bypass;
+  }
 
 }
