@@ -25,7 +25,8 @@ package org.mobicents.charging.server.account;
 import org.mobicents.slee.SbbLocalObjectExt;
 
 /**
- *
+ * Account and Balance Management SBB Local Object interface
+ * 
  * @author ammendonca
  * @author baranowb
  */

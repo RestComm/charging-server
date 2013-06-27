@@ -62,6 +62,7 @@ import net.java.slee.resource.diameter.ro.events.RoCreditControlRequest;
 import org.mobicents.charging.server.account.AccountBalanceManagement;
 import org.mobicents.charging.server.account.UnitReservation;
 import org.mobicents.charging.server.account.UnitReservation.ErrorCodeType;
+import org.mobicents.charging.server.data.DataSource;
 import org.mobicents.slee.ChildRelationExt;
 import org.mobicents.slee.SbbContextExt;
 import org.mobicents.slee.SbbLocalObjectExt;
@@ -72,7 +73,7 @@ import org.mobicents.slee.SbbLocalObjectExt;
  * @author ammendonca
  * @author baranowb
  */
-public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb/*Ext*/ {
+public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb/*Ext*/, DiameterChargingServer {
 
 	private static final long DEFAULT_VALIDITY_TIME = 86400;	
 	private static final TimerOptions DEFAULT_TIMER_OPTIONS = new TimerOptions(0, TimerPreserveMissed.ALL);
@@ -127,11 +128,11 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb/*
 
 	// ---------------------------- Child Relation ----------------------------
 	public abstract ChildRelation getAccountBalanceManagementChildRelation();
+	public abstract ChildRelation getDatasourceChildRelation();
 
 	// --------------------------------- IES ----------------------------------
 	public InitialEventSelector onCreditControlRequestInitialEventSelect(InitialEventSelector ies) {
 		RoCreditControlRequest event = (RoCreditControlRequest) ies.getEvent();
-		RoCreditControlRequest ccr = event;
 
 		ies.setCustomName(event.getSessionId());
 		ies.setInitialEvent(true);
@@ -141,12 +142,23 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb/*
 
 	// ---------------------------- Helper Methods ----------------------------
 
-	private static final String CHILD_NAME="ACC_MANAGER";
+	private static final String DATASOURCE_CHILD_NAME = "DATASOURCE";
+	protected DataSource getDatasource() throws TransactionRequiredLocalException, IllegalArgumentException, NullPointerException, SLEEException, CreateException {
+		ChildRelationExt cre = (ChildRelationExt) getDatasourceChildRelation();
+		SbbLocalObjectExt sbbLocalObject = cre.get(DATASOURCE_CHILD_NAME);
+		if (sbbLocalObject == null) {
+			sbbLocalObject = cre.create(DATASOURCE_CHILD_NAME);
+		}
+
+		return (DataSource) sbbLocalObject;
+	}
+
+	private static final String ABMF_CHILD_NAME = "ACC_MANAGER";
 	protected AccountBalanceManagement getAccountManager() throws TransactionRequiredLocalException, IllegalArgumentException, NullPointerException, SLEEException, CreateException {
 		ChildRelationExt cre = (ChildRelationExt) getAccountBalanceManagementChildRelation();
-		SbbLocalObjectExt sbbLocalObject = cre.get(CHILD_NAME);
+		SbbLocalObjectExt sbbLocalObject = cre.get(ABMF_CHILD_NAME);
 		if (sbbLocalObject == null) {
-			sbbLocalObject = cre.create(CHILD_NAME);
+			sbbLocalObject = cre.create(ABMF_CHILD_NAME);
 		}
 
 		return (AccountBalanceManagement) sbbLocalObject;
@@ -173,9 +185,7 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb/*
 		case AccountingConnectionErr:
 		default:
 			return DiameterResultCode.DIAMETER_UNABLE_TO_DELIVER;
-
 		}
-
 	}
 
 	// ---------------------------- Event Handlers ----------------------------
@@ -191,29 +201,49 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb/*
 			tracer.info("==============================================================================");
 		}
 
-    AccountBalanceManagement am;
-    try {
-      am = getAccountManager();
-    }
-    catch (Exception e) {
-      tracer.severe(" [xx] Unable to fetch Account and Balance Management Child SBB .");
-      return;
-    }
+		DataSource ds;
+		try {
+			ds = getDatasource();
+			if (tracer.isInfoEnabled()) {
+				tracer.info("[><] Got DataSource Child SBB Local Interface [" + ds + "]");
+			}
+			ds.init();
+		}
+		catch (Exception e) {
+			tracer.severe("[xx] Unable to fetch Datasource Child SBB .");
+			return;
+		}
 
-    try {
-      Properties props = new Properties();
-      props.load(this.getClass().getClassLoader().getResourceAsStream("users.properties"));
-      for (Object key : props.keySet()) {
-        String msisdn = (String) key;
-        am.addUser(msisdn, Long.valueOf(props.getProperty(msisdn)));
-      }
-      tracer.info(" [--] Loaded users from properties file. Dumping state.");
-      am.dump(".*");
-    }
-    catch(Exception e) {
-      tracer.warning(" [!!] Unable to load users from properties file. Allowing everything!");
-      am.setBypass(true);
-    }
+		AccountBalanceManagement am;
+		try {
+			am = getAccountManager();
+			if (tracer.isInfoEnabled()) {
+				tracer.info("[><] Got Account Balance Management Child SBB Local Interface [" + am + "]");
+			}
+		}
+		catch (Exception e) {
+			tracer.severe("[xx] Unable to fetch Account and Balance Management Child SBB .");
+			return;
+		}
+
+		try {
+			Properties props = new Properties();
+			props.load(this.getClass().getClassLoader().getResourceAsStream("users.properties"));
+			for (Object key : props.keySet()) {
+				String imsi = (String) key;
+				// am.addUser(imsi, Long.valueOf(props.getProperty(imsi)));
+				// FIXME: remove the properties to database mapping.. useful for now
+				ds.updateUser(imsi, Long.valueOf(props.getProperty(imsi)), 0);
+			}
+			if (tracer.isInfoEnabled()) {
+				tracer.info("[--] Loaded users from properties file. Dumping state.");
+				am.dump("%");
+			}
+		}
+		catch(Exception e) {
+			tracer.warning("[!!] Unable to load users from properties file. Allowing everything!");
+			am.setBypass(true);
+		}
 	}
 
 	public void onCreditControlRequest(RoCreditControlRequest ccr, ActivityContextInterface aci) {
@@ -221,16 +251,18 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb/*
 
 		String sessionId = ccr.getSessionId();
 
-    if (tracer.isInfoEnabled()) {
-      tracer.info(" [<<] SID<" + ccr.getSessionId() + "> Received Credit-Control-Request [" + ccr.getCcRequestType().toString() + "]");
-      //tracer.info(event.toString());
-    }
+		if (tracer.isInfoEnabled()) {
+			tracer.info("[<<] SID<" + ccr.getSessionId() + "> Received Credit-Control-Request [" + ccr.getCcRequestType().toString() + "]");
+			if(tracer.isFineEnabled()) {
+				tracer.fine(ccr.toString());
+			}
+		}
 
-    // Some common ops. may be moved to proper places to avoid unnecessary ops
+		// Some common ops. may be moved to proper places to avoid unnecessary ops
 		RoServerSessionActivity ccServerActivity = (RoServerSessionActivity) aci.getActivity();
 
 		String endUserId = null;
-		
+
 		// Get the Subcription-Id and it's Type .. for now we only care for first, still we log all
 		SubscriptionIdAvp[] subscriptionIds = ccr.getSubscriptionIds();
 
@@ -238,25 +270,25 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb/*
 			endUserId = subscriptionIds[0].getSubscriptionIdData();
 			if (tracer.isInfoEnabled()) {
 				for (SubscriptionIdAvp subscriptionId : subscriptionIds) {
-					tracer.info(" [--] SID<" + sessionId + "> Received CCR has Subcription-Id with type '" + subscriptionId.
+					tracer.info("[--] SID<" + sessionId + "> Received CCR has Subcription-Id with type '" + subscriptionId.
 							getSubscriptionIdType() + "' and value '" + subscriptionId.getSubscriptionIdData() + "'.");
 				}
 			}
 		}
 		else {
-			tracer.severe(" [xx] SID<" + sessionId + "> Subscription-Id AVP missing in CCR. Rejecting CCR.");
+			tracer.severe("[xx] SID<" + sessionId + "> Subscription-Id AVP missing in CCR. Rejecting CCR.");
 			createCCA(ccServerActivity, ccr, null, DiameterResultCode.DIAMETER_MISSING_AVP);
 		}
 
 		RoCreditControlAnswer cca = null;
 		if (endUserId == null) {
-			tracer.severe(" [xx] SID<" + sessionId + "> Subscription-Id AVP is present but could not read it's data. Rejecting CCR.");
+			tracer.severe("[xx] SID<" + sessionId + "> Subscription-Id AVP is present but could not read it's data. Rejecting CCR.");
 			cca = createCCA(ccServerActivity, ccr, null, DiameterResultCode.DIAMETER_MISSING_AVP); //TODO: include missing avp - its a "SHOULD"
 			try {
 				ccServerActivity.sendRoCreditControlAnswer(cca);
 			}
 			catch (IOException e) {
-				tracer.severe(" [xx] SID<" + sessionId + "> Error while trying to send Credit-Control-Answer.", e);
+				tracer.severe("[xx] SID<" + sessionId + "> Error while trying to send Credit-Control-Answer.", e);
 			}
 			aci.detach(this.getSbbContext().getSbbLocalObject());
 			return;
@@ -267,30 +299,27 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb/*
 		switch (ccr.getCcRequestType()) {
 		// INITIAL_REQUEST 1
 		case INITIAL_REQUEST:
-			// UPDATE_REQUEST 2
+		// UPDATE_REQUEST 2
 		case UPDATE_REQUEST:
-
-		  timerFacility.setTimer(aci, null, System.currentTimeMillis() + 15000, DEFAULT_TIMER_OPTIONS);
+			timerFacility.setTimer(aci, null, System.currentTimeMillis() + 15000, DEFAULT_TIMER_OPTIONS);
 
 			try {
 				accountBalanceManagement = getAccountManager();
-				
+
 				// retrieve service information from AVPs
 				serviceContextId = ccr.getServiceContextId();
 				if (serviceContextId == null) {
-		      tracer.severe(" [xx] SID<" + sessionId + "> Service-Context-Id AVP missing in CCR. Rejecting CCR.");
-		      createCCA(ccServerActivity, ccr, null, DiameterResultCode.DIAMETER_MISSING_AVP);
+					tracer.severe("[xx] SID<" + sessionId + "> Service-Context-Id AVP missing in CCR. Rejecting CCR.");
+					createCCA(ccServerActivity, ccr, null, DiameterResultCode.DIAMETER_MISSING_AVP);
 				}
 				else {
-				  if (serviceContextId.equals("")) {
-			      tracer.severe(" [xx] SID<" + sessionId + "> Service-Context-Id AVP is empty in CCR. Rejecting CCR.");
-			      createCCA(ccServerActivity, ccr, null, DiameterResultCode.DIAMETER_INVALID_AVP_VALUE);
-				  }
+					if (serviceContextId.equals("")) {
+						tracer.severe("[xx] SID<" + sessionId + "> Service-Context-Id AVP is empty in CCR. Rejecting CCR.");
+						createCCA(ccServerActivity, ccr, null, DiameterResultCode.DIAMETER_INVALID_AVP_VALUE);
+					}
 				}
-				
-				// TODO: For Ro, support Service-Information AVP
 
-				long reqNumber = ccr.getCcRequestNumber();
+				// TODO: For Ro, support Service-Information AVP
 				List<UnitReservation> reservations = new ArrayList<UnitReservation>();
 				long resultCode = DiameterResultCode.DIAMETER_SUCCESS;
 
@@ -299,7 +328,6 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb/*
 					long requestedUnits = mscc.getRequestedServiceUnit().getCreditControlTotalOctets(); // FIXME: No diff between IN/OUT, from docs it seems
 
 					long[] serviceIds = mscc.getServiceIdentifiers();
-					UnitReservation unitReservation = null;
 
 					//if its UPDATE, lets first update data 
 					long usedUnitsCount = 0;
@@ -310,29 +338,23 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb/*
 						for (UsedServiceUnitAvp usedUnit : usedUnits) {
 							usedUnitsCount += usedUnit.getCreditControlTotalOctets();
 						}
-						unitReservation = accountBalanceManagement.updateRequest(sessionId, endUserId, requestedUnits, usedUnitsCount, (int)ccr.getCcRequestNumber()); //...
+						accountBalanceManagement.updateRequest(sessionId, endUserId, requestedUnits, usedUnitsCount, (int)ccr.getCcRequestNumber()); //...
+						storedCCR = ccr;
+						storedEndUserId = endUserId;
+						storedRequestedUnits = requestedUnits;
+						storedServiceIds = serviceIds;
+						storedReservations = new ArrayList<UnitReservation>();
+						return; // we'll continue @ resumeOnCreditControlRequest(..)
 					}
 					else {
 						// Initial Request
-						unitReservation = accountBalanceManagement.initialRequest(sessionId, endUserId, requestedUnits/*, tgppSgsnMccMnc, calledStationId, ccr.getDestinationHost().toString()*/);
-					}
-
-					//if its update
-					if (tracer.isInfoEnabled()) {
-						tracer.info(" [>>] SID<" + ccr.getSessionId() + "> '" + endUserId + "' REQUESTED " + requestedUnits + " octets for '" + Arrays.toString(serviceIds) + "'.");
-					}
-
-					reservations.add(unitReservation);
-
-					if (unitReservation.isSuccess()) {
-						tracer.info(" [>>] SID<" + ccr.getSessionId() + "> '" + endUserId + "' GRANTED " + requestedUnits + " octets for '" + Arrays.toString(serviceIds) + "'.");
-					}
-					else {
-						tracer.info(" [>>] SID<" + ccr.getSessionId() + "> '" + endUserId + "' DENIED " + requestedUnits + " octets for '" + Arrays.toString(serviceIds) + "'.");
-						if (CcRequestType.UPDATE_REQUEST == ccr.getCcRequestType()) {
-							accountBalanceManagement.updateRequest(sessionId, endUserId, 0L,usedUnitsCount , (int)ccr.getCcRequestNumber());
-						}
-						resultCode = getResultCode(unitReservation.getErrorCodeType());
+						accountBalanceManagement.initialRequest(sessionId, endUserId, requestedUnits/*, tgppSgsnMccMnc, calledStationId, ccr.getDestinationHost().toString()*/);
+						storedCCR = ccr;
+						storedEndUserId = endUserId;
+						storedRequestedUnits = requestedUnits;
+						storedServiceIds = serviceIds;
+						storedReservations = new ArrayList<UnitReservation>();
+						return; // we'll continue @ resumeOnCreditControlRequest(..)
 					}
 				}
 
@@ -346,27 +368,25 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb/*
 				ccServerActivity.sendRoCreditControlAnswer(cca);
 			}
 			catch (Exception e) {
-				tracer.severe(" [xx] SID<" + ccr.getSessionId() + "> Failure processing Credit-Control-Request [" + (ccr.getCcRequestType() == CcRequestType.INITIAL_REQUEST ? "INITIAL" : "UPDATE") + "]", e);
+				tracer.severe("[xx] SID<" + ccr.getSessionId() + "> Failure processing Credit-Control-Request [" + (ccr.getCcRequestType() == CcRequestType.INITIAL_REQUEST ? "INITIAL" : "UPDATE") + "]", e);
 			}
 			break;
 			// TERMINATION_REQUEST 3
 		case TERMINATION_REQUEST:
 			try {
-
 				if (tracer.isInfoEnabled()) {
-					tracer.info(" [>>] SID<" + ccr.getSessionId() + "> '" + endUserId + "' requested service termination for '" + serviceContextId + "'.");
+					tracer.info("[>>] SID<" + ccr.getSessionId() + "> '" + endUserId + "' requested service termination for '" + serviceContextId + "'.");
 				}
 				accountBalanceManagement = getAccountManager();
-				List<UnitReservation> reservations = new ArrayList<UnitReservation>();
 
 				for (MultipleServicesCreditControlAvp mscc : ccr.getMultipleServicesCreditControls()) {
-				  RequestedServiceUnitAvp rsu = mscc.getRequestedServiceUnit();
+					RequestedServiceUnitAvp rsu = mscc.getRequestedServiceUnit();
 					long requestedUnits = rsu != null ? rsu.getCreditControlTotalOctets() : 0; // FIXME: No diff between IN/OUT, from docs it seems
 
 					long[] serviceIds = mscc.getServiceIdentifiers();
 
 					if (tracer.isInfoEnabled()) {
-						tracer.info(" [>>] SID<" + ccr.getSessionId() + "> '" + endUserId + "' requested " + requestedUnits + " octets for '" + Arrays.toString(serviceIds) + "'.");
+						tracer.info("[>>] SID<" + ccr.getSessionId() + "> '" + endUserId + "' requested " + requestedUnits + " octets for '" + Arrays.toString(serviceIds) + "'.");
 					}
 
 					// TODO: update used units.
@@ -376,8 +396,6 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb/*
 					//   unitMonitor.updateUsed(serviceIds,usedUnit.getCreditControlTotalOctets());
 					// }
 
-					//and terminate session
-					//update used units.
 					UsedServiceUnitAvp[] usedUnits = mscc.getUsedServiceUnits();
 					long usedUnitsCount = 0;
 					for (UsedServiceUnitAvp usedUnit : usedUnits) {
@@ -385,6 +403,12 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb/*
 						usedUnitsCount += usedUnit.getCreditControlTotalOctets();
 					}
 					accountBalanceManagement.terminateRequest(sessionId, endUserId, 0L, usedUnitsCount, (int)ccr.getCcRequestNumber());
+					storedCCR = ccr;
+					storedEndUserId = endUserId;
+					storedRequestedUnits = requestedUnits;
+					storedServiceIds = serviceIds;
+					storedReservations = new ArrayList<UnitReservation>();
+					return;
 				}
 
 				// 8.7.  Cost-Information AVP
@@ -442,17 +466,13 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb/*
 				ccServerActivity.sendRoCreditControlAnswer(cca);
 			}
 			catch (Exception e) {
-				tracer.severe(" [xx] SID<" + ccr.getSessionId() + "> Failure processing Credit-Control-Request [TERMINATION]", e);
+				tracer.severe("[xx] SID<" + ccr.getSessionId() + "> Failure processing Credit-Control-Request [TERMINATION]", e);
 			}
 			break;
 			// EVENT_REQUEST 4
 		case EVENT_REQUEST:
 			if (tracer.isInfoEnabled()) {
-				tracer.info(" [<<] SID<" + ccr.getSessionId() + "> Received Credit-Control-Request [EVENT]");
-				
-				if(tracer.isFineEnabled()) {
-					tracer.fine(ccr.toString());
-				}
+				tracer.info("[<<] SID<" + ccr.getSessionId() + "> Received Credit-Control-Request [EVENT]");
 			}
 			aci.detach(this.getSbbContext().getSbbLocalObject());
 			break;
@@ -467,13 +487,12 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb/*
 	public void onTimerEvent(TimerEvent timer, ActivityContextInterface aci) {
 		// detach from this activity, we don't want to handle any other event on it
 		aci.detach(this.sbbContextExt.getSbbLocalObject());
-		tracer.info("Terminating Activity " + aci.getActivity());
 		((RoServerSessionActivity)aci.getActivity()).endActivity();
 	}
 
 	/**
 	 * @param ccServerActivity
-	 * @param event
+	 * @param request
 	 * @param reservations
 	 * @param resultCode
 	 * @return
@@ -555,7 +574,6 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb/*
 			answer.setMultipleServicesCreditControls(ansMSCCs.toArray(new MultipleServicesCreditControlAvp[ansMSCCs.size()]));
 		}
 
-
 		// *[ Multiple-Services-Credit-Control ]
 		//  [ Cost-Information]
 		//  [ Final-Unit-Indication ]
@@ -573,11 +591,76 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb/*
 		// *[ AVP ]
 
 		if (tracer.isInfoEnabled()) {
-			tracer.info(" [>>] SID<" + request.getSessionId() + "> Created Credit-Control-Answer with Result-Code = " + answer.getResultCode() + ".");
-			//tracer.info(answer.toString());
+			tracer.info("[>>] SID<" + request.getSessionId() + "> Created Credit-Control-Answer with Result-Code = " + answer.getResultCode() + ".");
+			if (tracer.isFineEnabled()) {
+				tracer.fine(answer.toString());
+			}
 		}
 
 		return answer;
+	}
+
+	// TODO: make it CMPs
+	private RoCreditControlRequest storedCCR;
+	private String storedEndUserId;
+	private long storedRequestedUnits;
+	private long[] storedServiceIds;
+	private ArrayList<UnitReservation> storedReservations = new ArrayList<UnitReservation>();
+	
+	@Override
+	public void resumeOnCreditControlRequest(UnitReservation ur) {
+		if (tracer.isInfoEnabled()) {
+			tracer.info("[<<] SID<" + storedCCR.getSessionId() + "> Resuming Handling of Credit-Control-Request [" + storedCCR.getCcRequestType().toString() + "]");
+		}
+
+		storedReservations.add(ur);
+		long resultCode = DiameterResultCode.DIAMETER_SUCCESS;
+		if (ur.isSuccess()) {
+			if (tracer.isInfoEnabled()) {
+				tracer.info("[>>] SID<" + storedCCR.getSessionId() + "> '" + storedEndUserId + "' GRANTED " + ur.getUnits() + " octets for '" + Arrays.toString(storedServiceIds) + "'.");
+			}
+		}
+		else {
+			if (tracer.isInfoEnabled()) {
+				tracer.info("[>>] SID<" + storedCCR.getSessionId() + "> '" + storedEndUserId + "' DENIED " + storedRequestedUnits + " octets for '" + Arrays.toString(storedServiceIds) + "'.");
+			}
+			// FIXME: what is this ? why ?
+			// if (CcRequestType.UPDATE_REQUEST == storedCCR.getCcRequestType()) {
+			//	 accountBalanceManagement.updateRequest(ur.getSessionId(), storedEndUserId, 0L, usedUnitsCount , (int)ccr.getCcRequestNumber());
+			// }
+			resultCode = getResultCode(ur.getErrorCodeType());
+		}
+		if(storedCCR.getMultipleServicesCreditControls().length == storedReservations.size()) {
+			RoServerSessionActivity activity = getServerSessionActivityToReply();
+			RoCreditControlAnswer cca = storedReservations.size() > 0 ? createCCA(activity, storedCCR, storedReservations, resultCode) : createCCA(activity, storedCCR, null, DiameterResultCode.DIAMETER_MISSING_AVP);
+			try {
+				activity.sendRoCreditControlAnswer(cca);
+			}
+			catch (IOException e) {
+				tracer.severe("[xx] Unable to send Credit-Control-Answer.", e);
+			}
+		}
+	}
+	
+	@Override
+	public void updateAccountDataResult(boolean success) {
+		if (tracer.isInfoEnabled()) {
+			tracer.info("[><] Update User Account Data " + (success ? "completed wit success." : "failed") + ".");
+		}
+	}
+
+	private RoServerSessionActivity getServerSessionActivityToReply() {
+		ActivityContextInterface[] acis = this.sbbContextExt.getActivities();
+		Object activity = null;
+		for (ActivityContextInterface aci : acis) {
+			activity = aci.getActivity();
+			if (activity instanceof RoServerSessionActivity) {
+				// detach to not handle the activity end
+				aci.detach(sbbContextExt.getSbbLocalObject());
+				return (RoServerSessionActivity) activity;
+			}
+		}
+		return null;
 	}
 
 }

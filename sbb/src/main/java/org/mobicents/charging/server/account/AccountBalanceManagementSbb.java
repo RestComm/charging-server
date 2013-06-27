@@ -22,15 +22,24 @@
 
 package org.mobicents.charging.server.account;
 
-import java.util.Properties;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.List;
 
+import javax.slee.ChildRelation;
+import javax.slee.CreateException;
+import javax.slee.SLEEException;
 import javax.slee.Sbb;
 import javax.slee.SbbContext;
+import javax.slee.TransactionRequiredLocalException;
 import javax.slee.facilities.Tracer;
 
 import org.mobicents.charging.server.BaseSbb;
+import org.mobicents.charging.server.DiameterChargingServer;
+import org.mobicents.charging.server.account.UnitRequest.SubscriptionIdType;
+import org.mobicents.charging.server.data.DataSource;
+import org.mobicents.charging.server.data.UserAccountData;
+import org.mobicents.slee.ChildRelationExt;
 import org.mobicents.slee.SbbContextExt;
+import org.mobicents.slee.SbbLocalObjectExt;
 
 /**
  * Child SBB for Account and Balance Management 
@@ -38,20 +47,53 @@ import org.mobicents.slee.SbbContextExt;
  * @author ammendonca
  * @author baranowb
  */
-public abstract class AccountBalanceManagementSbb extends BaseSbb implements AccountBalanceManagement, Sbb/*Ext*/ {
+public abstract class AccountBalanceManagementSbb extends BaseSbb implements Sbb, AccountBalanceManagement {
 
 	private Tracer tracer;
 	private SbbContextExt sbbContext;
 
 	// If set to true, no balance is verified for any user.
 	private boolean bypass = false;
-	
-	private static ConcurrentHashMap<String, Long> userBalance = new ConcurrentHashMap<String, Long>();
 
-	private static ConcurrentHashMap<String, Long> userUsedUnits = new ConcurrentHashMap<String, Long>();
-	private static ConcurrentHashMap<String, Long> userReservedUnits = new ConcurrentHashMap<String, Long>();
+	// ---------------------------- Child Relations -----------------------------
 
-  // --------------------------- SBB LO callbacks ---------------------------
+	public abstract ChildRelation getDatasourceChildRelation();
+
+	private static final String DATASOURCE_CHILD_NAME = "DATASOURCE";
+
+	protected DataSource getDatasource() throws TransactionRequiredLocalException, IllegalArgumentException, NullPointerException, SLEEException, CreateException {
+		ChildRelationExt cre = (ChildRelationExt) getDatasourceChildRelation();
+		SbbLocalObjectExt sbbLocalObject = cre.get(DATASOURCE_CHILD_NAME);
+		if (sbbLocalObject == null) {
+			sbbLocalObject = cre.create(DATASOURCE_CHILD_NAME);
+		}
+
+		return (DataSource) sbbLocalObject;
+	}
+
+	// ---------------------------- SLEE Callbacks ----------------------------
+
+	/*
+	 * (non-Javadoc)
+	 * 
+	 * @see javax.slee.Sbb#setSbbContext(javax.slee.SbbContext)
+	 */
+	public void setSbbContext(SbbContext context) {
+		this.tracer = context.getTracer("CS-ABMF");
+		this.sbbContext = (SbbContextExt) context;
+	}
+
+	/*
+	 * (non-Javadoc)
+	 * 
+	 * @see javax.slee.Sbb#unsetSbbContext()
+	 */
+	public void unsetSbbContext() {
+		this.sbbContext = null;
+		this.tracer = null;
+	}
+
+	// ---------------------- SBB LocalObject Callbacks -----------------------
 
 	/*
 	 * Initial Request Handling
@@ -65,28 +107,11 @@ public abstract class AccountBalanceManagementSbb extends BaseSbb implements Acc
 	 *  5. Add granted units to reserved units
 	 *  6. Return success
 	 */
-	public UnitReservation initialRequest(String sessionId, String userId, long requestedAmount)
-	{
-		tracer.info(" [>>] Received an Initial Request to Account and Balance Management SBB.");
-
-		if (bypass) {
-		  return reserveUnits(sessionId, userId, requestedAmount, Long.MAX_VALUE);
+	public void initialRequest(String sessionId, String userId, long requestedAmount) {
+		if (tracer.isInfoEnabled()) {
+			tracer.info("[>>] SID<" + sessionId + "> Received an Initial Request to Account and Balance Management SBB.");
 		}
-		
-		// get user current balance 
-		Long units = userBalance.get(userId);
-
-		if (units == null) {
-			return new UnitReservation(404L, "Invalid User", sessionId, System.currentTimeMillis());	
-		}
-		else {
-			if (units <= 0) {
-				return new UnitReservation(503L, "No Units Available", sessionId, System.currentTimeMillis());
-			}
-			else {
-				return reserveUnits(sessionId, userId, requestedAmount, units);
-			}
-		}
+		handleRequest(new UnitRequest(sessionId, SubscriptionIdType.END_USER_IMSI, userId, requestedAmount));
 	}
 
 	/*
@@ -105,29 +130,15 @@ public abstract class AccountBalanceManagementSbb extends BaseSbb implements Acc
 	 *  9. Add granted units to reserved units
 	 * 10. Return success
 	 */
-	public  UnitReservation updateRequest(String sessionId, String userId, long requestedAmount, long usedAmount, int requestNumber)
-	{
-		tracer.info(" [>>] Received an Update Request to Account and Balance Management SBB.");
-
-		// get user current balance 
-		Long units = userBalance.get(userId);
-
-		checkUsedUnits(userId, usedAmount, units);
-
-    if (bypass) {
-      return reserveUnits(sessionId, userId, requestedAmount, Long.MAX_VALUE);
-    }
-
-    if (units <= 0) {
-			return new UnitReservation(503L, "No Units Available", sessionId, System.currentTimeMillis());
+	public void updateRequest(String sessionId, String userId, long requestedAmount, long usedAmount, int requestNumber) {
+		if (tracer.isInfoEnabled()) {
+			tracer.info("[>>] SID<" + sessionId + "> Received an Update Request to Account and Balance Management SBB.");
 		}
-		else {
-			return reserveUnits(sessionId, userId, requestedAmount, units);
-		}
+		handleRequest(new UnitRequest(sessionId, SubscriptionIdType.END_USER_IMSI, userId, requestedAmount, usedAmount));
 	}
 
 	/*
-	 * Update Request Handling
+	 * Terminate Request Handling
 	 * 
 	 *  1. Get user reserved units
 	 *  2. Check difference between reserved and used units
@@ -136,103 +147,102 @@ public abstract class AccountBalanceManagementSbb extends BaseSbb implements Acc
 	 *  4. Update balance by adding unused units, if any. (or subtracting exceeded)
 	 *  5. [Optional] Register used units, for informational purposes
 	 */
-	public UnitReservation terminateRequest(String sessionId, String userId, long requestedAmount, long usedAmount, int requestNumber)
-	{
-		tracer.info(" [>>] Received an Update Request to Account and Balance Management SBB.");
-
-		// get user current balance 
-		Long units = userBalance.get(userId);
-
-		checkUsedUnits(userId, usedAmount, units);
-
-		return new UnitReservation(true, 0L, sessionId, System.currentTimeMillis());
+	public void terminateRequest(String sessionId, String userId, long requestedAmount, long usedAmount, int requestNumber) {
+		if (tracer.isInfoEnabled()) {
+			tracer.info("[>>] SID<" + sessionId + "> Received an Terminate Request to Account and Balance Management SBB.");
+		}
+		handleRequest(new UnitRequest(sessionId, SubscriptionIdType.END_USER_IMSI, userId, requestedAmount, usedAmount));
 	}
 
-	// ------------------------------ SBB Entity ------------------------------
-
-	// ---------------------------- SLEE Callbacks ----------------------------
-
 	/*
-	 * (non-Javadoc)
-	 * 
-	 * @see javax.slee.Sbb#setSbbContext(javax.slee.SbbContext)
+	 * We just call the Datasource method for getting user account data and once it has the data,
+	 * callback will be called and user account data printed.
 	 */
-	public void setSbbContext(SbbContext context) {
-		this.tracer = context.getTracer("CS-ABMF");
-		this.sbbContext = (SbbContextExt) context;
-  }
-
-	/*
-	 * (non-Javadoc)
-	 * 
-	 * @see javax.slee.Sbb#unsetSbbContext()
-	 */
-	public void unsetSbbContext() {
-		this.sbbContext = null;
-		this.tracer = null;
-	}
-
 	public void dump(String usersRegExp) {
-		tracer.info(String.format("%20s | %10s | %10s | %10s |",  "User ID", "Balance", "Reserved", "Used"));
-		tracer.info("---------------------+------------+------------+------------+");
-		for (String user : userBalance.keySet()) {
-		  if(user.matches(usersRegExp)) {
-		    tracer.info(String.format("%20s | %10s | %10s | %10s |",  user, userBalance.get(user), userReservedUnits.get(user),
-		        userUsedUnits.get(user)));
-		  }
+		if (tracer.isInfoEnabled()) {
+			DataSource ds = null;
+			try {
+				ds = getDatasource();
+				ds.getUserAccountData(usersRegExp);
+			}
+			catch (Exception e) {
+				tracer.severe("[xx] Unable to obtain Datasource Child SBB", e);
+			}
 		}
 	}
 
-	public boolean addUser(String userId, long balance) {
-		if (!userBalance.containsKey(userId)) {
-			userBalance.put(userId, balance);
-			return true;
-		}
-		return false;
-	}
-	
 	// ---------------------------- Helper Methods ----------------------------
 
-	private UnitReservation reserveUnits(String sessionId, String userId, long requestedAmount, long availableAmount) {
-		long grantedUnits = Math.min(requestedAmount, availableAmount);
-
-		// update balance
-		userBalance.put(userId, availableAmount - grantedUnits);
-
-		// update reserved units
-		Long reserved = userReservedUnits.get(userId);
-		if (reserved == null) {
-			userReservedUnits.put(userId, grantedUnits);
-		}
-		else {
-			userReservedUnits.put(userId, reserved + grantedUnits);
+	private void handleRequest(UnitRequest unitRequest) {
+		if (tracer.isInfoEnabled()) {
+			tracer.info("[><] SID<" + unitRequest.getSessionId() + "> Handling Credit-Control-Request.");
 		}
 
-		return new UnitReservation(true, grantedUnits, sessionId, System.currentTimeMillis());
+		if (bypass) {
+			if (tracer.isInfoEnabled()) {
+				tracer.info("[><] SID<" + unitRequest.getSessionId() + "> Bypassing Unit Reservation...");
+			}
+			UnitReservation ur = new UnitReservation(true, unitRequest.getRequestedAmount(), unitRequest.getSessionId(), System.currentTimeMillis());
+			((DiameterChargingServer)sbbContext.getSbbLocalObject().getParent()).resumeOnCreditControlRequest(ur);
+		}
+
+		// get user current balance
+		DataSource ds = null;
+		try {
+			ds = getDatasource();
+			ds.requestUnits(unitRequest);
+		}
+		catch (Exception e) {
+			tracer.severe("[xx] Unable to obtain Datasource Child SBB", e);
+		}
 	}
 
-	private void checkUsedUnits(String userId, long usedAmount, long availableAmount) {
-		Long reservedUnits = userReservedUnits.remove(userId);
-
-		Long nonUsedUnits = (reservedUnits == null ? 0 : reservedUnits)- usedAmount;
-
-		if (nonUsedUnits < 0) {
-			tracer.warning(" [!!] User used more than granted units.");
+	private void handleResponse(UnitRequest unitRequest, UserAccountData data) {
+		// We got a response, so let's look at it
+		UnitReservation ur = null;
+		if (data.isFailure()) {
+			if (data.getImsi() == null) {
+				ur = new UnitReservation(404L, "Invalid User", unitRequest.getSessionId(), System.currentTimeMillis());	
+			}
+			else if (data.getReserved() > 0) {
+				ur = new UnitReservation(503L, "No Units Available", unitRequest.getSessionId(), System.currentTimeMillis());
+			}
+		}
+		else {
+			ur = reserveUnits(unitRequest.getSessionId(), unitRequest.getSubscriptionId(), unitRequest.getRequestedAmount(), data.getReserved());
 		}
 
-		// update balance, if it makes sense
-		if (nonUsedUnits != 0) {
-			availableAmount += nonUsedUnits;
-			userBalance.put(userId, availableAmount);
-		}
+		((DiameterChargingServer)sbbContext.getSbbLocalObject().getParent()).resumeOnCreditControlRequest(ur);
+	}
 
-		// update used units
-		Long oldUsedUnits = userUsedUnits.get(userId);
-		userUsedUnits.put(userId, oldUsedUnits != null ? oldUsedUnits + usedAmount : usedAmount);
+	private UnitReservation reserveUnits(String sessionId, String userId, long requestedAmount, long availableAmount) {
+		return new UnitReservation(true, requestedAmount, sessionId, System.currentTimeMillis());
+	}
+
+	// ---------------------- Datasource Child SBB Callbacks ------------------
+
+	@Override
+	public void getAccountDataResult(List<UserAccountData> result) {
+		if (tracer.isInfoEnabled()) {
+			tracer.info(String.format("%20s | %10s | %10s | %10s |", "User ID", "Balance", "Reserved", "Used"));
+			tracer.info("---------------------+------------+------------+------------+");
+			for (UserAccountData uad : result) {
+				tracer.info(String.format("%20s | %10s | %10s | %10s |", uad.getImsi(), uad.getBalance(), uad.getReserved(), "N/A"));
+			}
+		}
+	}
+
+	@Override
+	public void reserveUnitsResult(UnitRequest unitRequest, UserAccountData uad) {
+		if (tracer.isInfoEnabled()) {
+			tracer.info("[><] SID<" + unitRequest.getSessionId() + "> Just received UPDATE callback from DataSource Child SBB.");
+			tracer.info("[><] SID<" + unitRequest.getSessionId() + "> Received Reserve Units Result: " + uad + " (Request: " + unitRequest + ").");
+		}
+		handleResponse(unitRequest, uad);
 	}
 
 	public void setBypass(boolean bypass) {
-    this.bypass = bypass;
-  }
+		this.bypass = bypass;
+	}
 
 }

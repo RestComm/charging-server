@@ -31,20 +31,41 @@
 	<dependencyManagement>
 		<dependencies>
 			<dependency>
-				<groupId>org.mobicents.servers.diameter.resources</groupId>
-				<artifactId>cca-ratype</artifactId>
-				<version>${mobicents.jain-slee.version}</version>
+				<groupId>org.mobicents.resources</groupId>
+				<artifactId>mobicents-slee-ra-diameter-cca-ratype</artifactId>
+				<version>2.7.1.FINAL</version>
 			</dependency>
 			<dependency>
-				<groupId>org.mobicents.servers.diameter.resources</groupId>
-				<artifactId>ro-ratype</artifactId>
-				<version>${mobicents.jain-slee.version}</version>
+				<groupId>org.mobicents.resources</groupId>
+				<artifactId>mobicents-slee-ra-diameter-ro-ratype</artifactId>
+				<version>2.7.1.FINAL</version>
+			</dependency>
+			<dependency>
+				<groupId>org.mobicents.resources</groupId>
+				<artifactId>mobicents-slee-ra-jdbc-ratype</artifactId>
+				<version>1.0.0.FINAL</version>
 			</dependency>
 		</dependencies>
 	</dependencyManagement>
 
 	<build>
 		<plugins>
+			<!-- JRebel -->
+			<plugin>
+				<groupId>org.zeroturnaround</groupId>
+				<artifactId>jrebel-maven-plugin</artifactId>
+				<version>1.1.1</version>
+				<executions>
+					<execution>
+						<id>generate-rebel-xml</id>
+						<phase>process-resources</phase>
+						<goals>
+							<goal>generate</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
+			<!--  Mobicents Eclipse -->
 			<plugin>
 				<artifactId>maven-eclipse-plugin</artifactId>
 				<groupId>org.mobicents.tools</groupId>
