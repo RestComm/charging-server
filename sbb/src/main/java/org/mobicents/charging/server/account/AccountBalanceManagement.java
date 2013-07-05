@@ -31,39 +31,37 @@ import org.mobicents.charging.server.data.UserAccountData;
  * 
  * @author ammendonca
  * @author baranowb
+ * @author rsaranathan
  */
 public interface AccountBalanceManagement {
 
 	/**
 	 * Handler for CCR "INITIAL" Requests.
 	 * 
-	 * @param sessionId
-	 * @param userId
-	 * @param requestedAmount
+	 * @param ccInfo CreditControlInfo
 	 */
-	void initialRequest(String sessionId, String userId, long requestedAmount);
+	void initialRequest(CreditControlInfo ccInfo);
 
 	/**
 	 * Handler for CCR "UPDATE" Requests.
 	 * 
-	 * @param sessionId
-	 * @param userId
-	 * @param requestedAmount
-	 * @param usedAmount
-	 * @param requestNumber
+	 * @param ccInfo CreditControlInfo
 	 */
-	void updateRequest(String sessionId, String userId, long requestedAmount, long usedAmount, int requestNumber);
+	void updateRequest(CreditControlInfo ccInfo);
 
 	/**
 	 * Handler for CCR "TERMINATE" Requests.
 	 * 
-	 * @param sessionId
-	 * @param userId
-	 * @param requestedAmount
-	 * @param usedAmount
-	 * @param requestNumber
+	 * @param ccInfo CreditControlInfo
 	 */
-	void terminateRequest(String sessionId, String userId, long requestedAmount, long usedAmount, int requestNumber);
+	void terminateRequest(CreditControlInfo ccInfo);
+	
+	/**
+	 * Handler for CCR "EVENT" Requests.
+	 * 
+	 * @param ccInfo CreditControlInfo
+	 */
+	void eventRequest(CreditControlInfo ccInfo);
 
 	/**
 	 * Dump data from Database into console, filtering users by regular expression.
@@ -72,6 +70,13 @@ public interface AccountBalanceManagement {
 	 */
 	void dump(String usersRegExp);
 
+	/**
+	 * Dump Credit Control Session information on to the console for that specific user.
+	 * 
+	 * @param usersRegExp
+	 */
+	void dump(CreditControlInfo ccInfo, UserAccountData uad);
+	
 	/**
 	 * Allows for bypassing Unit reserve, etc. Useful for evaluating performance hit.
 	 * 
@@ -91,9 +96,9 @@ public interface AccountBalanceManagement {
 	/**
 	 * Datasource callback method for updating user data (reservation/termination) in database
 	 * 
-	 * @param unitRequest
+	 * @param ccInfo
 	 * @param uad
 	 */
-	public void reserveUnitsResult(UnitRequest unitRequest, UserAccountData uad);
+	public void reserveUnitsResult(CreditControlInfo ccInfo, UserAccountData uad);
 
 }

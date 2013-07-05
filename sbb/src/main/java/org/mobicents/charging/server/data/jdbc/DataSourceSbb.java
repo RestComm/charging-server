@@ -23,6 +23,8 @@
 package org.mobicents.charging.server.data.jdbc;
 
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 
 import javax.slee.ActivityContextInterface;
@@ -33,7 +35,7 @@ import javax.slee.facilities.Tracer;
 import javax.slee.resource.ResourceAdaptorTypeID;
 
 import org.mobicents.charging.server.BaseSbb;
-import org.mobicents.charging.server.account.UnitRequest;
+import org.mobicents.charging.server.account.CreditControlInfo;
 import org.mobicents.charging.server.data.DataSource;
 import org.mobicents.slee.SbbContextExt;
 import org.mobicents.slee.resource.jdbc.JdbcActivity;
@@ -49,6 +51,7 @@ import org.mobicents.slee.resource.jdbc.task.simple.SimpleJdbcTaskResultEvent;
  * This SBB is responsible for interacting with the Datasource, using the JDBC Resource Adaptor.
  * 
  * @author ammendonca
+ * @author rsaranathan
  */
 public abstract class DataSourceSbb extends BaseSbb implements Sbb, DataSource {
 
@@ -74,15 +77,31 @@ public abstract class DataSourceSbb extends BaseSbb implements Sbb, DataSource {
 	public void init() {
 		// create db schema if needed
 		Connection connection = null;
+		boolean tableAlreadyExists = false;
 		try {
 			connection = jdbcRA.getConnection();
 			tracer.info("[><] Got JDBC Connection");
-
-			connection.createStatement().execute(DataSourceSchemaInfo._QUERY_DROP);
-			tracer.info("[><] Executed DROP Statement (" + DataSourceSchemaInfo._QUERY_DROP + ")");
-
-			connection.createStatement().execute(DataSourceSchemaInfo._QUERY_CREATE);
-			tracer.info("[><] Executed CREATE Statement (" + DataSourceSchemaInfo._QUERY_CREATE + ")");
+			try { 
+				PreparedStatement preparedStatement = connection.prepareStatement(DataSourceSchemaInfo._QUERY_EXISTS);
+				preparedStatement.execute();
+				ResultSet resultSet = preparedStatement.getResultSet();
+				if (resultSet.next()) {
+					tracer.info("[><] Table " + DataSourceSchemaInfo._TBL_USERS + " found in schema.");
+					//tableAlreadyExists = true;
+				}
+			}
+			catch (SQLException e) {
+				// it's ok, maybe table does not exist. no need to do anything here. 
+				tracer.warning("failed to query db schema", e);
+			}
+			
+			if (!tableAlreadyExists) {
+				connection.createStatement().execute(DataSourceSchemaInfo._QUERY_DROP);
+				tracer.info("[><] Executed DROP Statement (" + DataSourceSchemaInfo._QUERY_DROP + ")");
+	
+				connection.createStatement().execute(DataSourceSchemaInfo._QUERY_CREATE);
+				tracer.info("[><] Executed CREATE Statement (" + DataSourceSchemaInfo._QUERY_CREATE + ")");
+			}
 		}
 		catch (SQLException e) {
 			tracer.warning("failed to create db schema", e);
@@ -99,25 +118,25 @@ public abstract class DataSourceSbb extends BaseSbb implements Sbb, DataSource {
 	}
 
 	@Override
-	public void getUserAccountData(String imsi) {
-		tracer.info("[><] Calling getUserAccountData(" + imsi + ")");
-		executeTask(new GetAccountDataJdbcTask(imsi, tracer));
+	public void getUserAccountData(String msisdn) {
+		tracer.info("[><] Calling getUserAccountData(" + msisdn + ")");
+		executeTask(new GetAccountDataJdbcTask(msisdn, tracer));
 	}
 
 	@Override
-	public void requestUnits(UnitRequest unitRequest) {
+	public void requestUnits(CreditControlInfo ccInfo) {
 		if (tracer.isInfoEnabled()) {
-			tracer.info("[><] Requesting Units: " + unitRequest);
+			tracer.info("[><] Requesting Units: " + ccInfo);
 		}
-		executeTask(new ReserveUnitsJdbcTask(unitRequest, tracer));
+		executeTask(new ReserveUnitsJdbcTask(ccInfo, tracer));
 	}
 
 	@Override
-	public void updateUser(String imsi, long balance, long reserved) {
+	public void updateUser(String msisdn, long balance) {
 		if (tracer.isInfoEnabled()) {
-			tracer.info("[><] Updating User with IMSI '" + imsi + "'. Balance = " + balance + ", Reserved = " + reserved);
+			tracer.info("[><] Updating User with MSISDN '" + msisdn + "'. Balance = " + balance);
 		}
-		executeTask(new UpdateUserJdbcTask(imsi, balance, reserved, tracer));
+		executeTask(new UpdateUserJdbcTask(msisdn, balance, tracer));
 	}
 
 	// ---------------------------- Event Handlers ----------------------------

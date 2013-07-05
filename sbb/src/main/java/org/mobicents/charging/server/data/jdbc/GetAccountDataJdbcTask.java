@@ -34,6 +34,12 @@ import org.mobicents.charging.server.account.AccountBalanceManagement;
 import org.mobicents.charging.server.data.UserAccountData;
 import org.mobicents.slee.resource.jdbc.task.JdbcTaskContext;
 
+/**
+ * 
+ * @author ammendonca
+ * @author rsaranathan
+ */
+
 public class GetAccountDataJdbcTask extends DataSourceJdbcTask {
 
 	private List<UserAccountData> accountDataList = null;
@@ -57,14 +63,13 @@ public class GetAccountDataJdbcTask extends DataSourceJdbcTask {
 			accountDataList = new ArrayList<UserAccountData>();
 			while (resultSet.next()) {
 				UserAccountData accountData = new UserAccountData();
-				accountData.setImsi(resultSet.getString(DataSourceSchemaInfo._COL_IMSI));
+				accountData.setMsisdn(resultSet.getString(DataSourceSchemaInfo._COL_MSISDN));
 				accountData.setBalance(resultSet.getLong(DataSourceSchemaInfo._COL_BALANCE));
-				accountData.setReserved(resultSet.getLong(DataSourceSchemaInfo._COL_RESERVED));
 				accountDataList.add(accountData);
 			}
 		}
 		catch (Exception e) {
-			tracer.severe("Failed to execute task to get Account Data for MSIDN '" + msisdn + "'", e);
+			tracer.severe("[xx] Failed to execute task to get Account Data for MSISDN '" + msisdn + "'", e);
 		}
 		return this;
 	}

@@ -1,6 +1,6 @@
 /*
  * TeleStax, Open Source Cloud Communications
- * Copyright 2012, TeleStax and individual contributors as indicated
+ * Copyright 2013, TeleStax and individual contributors as indicated
  * by the @authors tag. See the copyright.txt in the distribution for
  * a full listing of individual contributors.
  *
@@ -20,21 +20,10 @@
  * 02110-1301 USA, or see the FSF site: http://www.fsf.org.
  */
 
-package org.mobicents.charging.server;
+package org.mobicents.charging.server.ratingengine;
 
-import org.mobicents.charging.server.account.CreditControlInfo;
+import org.mobicents.slee.SbbLocalObjectExt;
 
-public interface DiameterChargingServer {
-
-	/**
-	 * Callback for resuming handling of Credit-Control-Request.
-	 * 
-	 * @param ccInfo
-	 */
-	public void resumeOnCreditControlRequest(CreditControlInfo ccInfo);
-
-	// Datasource Callbacks -----------------------------------------------------
-
-	public void updateAccountDataResult(boolean success);
+public interface RatingEngineManagementSbbLocalObject extends SbbLocalObjectExt, RatingEngineClient {
 
 }

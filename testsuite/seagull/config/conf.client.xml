@@ -32,7 +32,7 @@
   <define entity="traffic-param" name="max-simultaneous-calls" value="5000"></define>
   <define entity="traffic-param" name="select-timeout-ms" value="1000"></define>
  
-  <define entity="traffic-param" name="number-calls" value="10000000"></define> 
+  <define entity="traffic-param" name="number-calls" value="10000000"></define>
   <define entity="traffic-param" name="external-data-file" value="../scenario/msisdn.csv"> </define>
 <!--  <define entity="traffic-param" name="external-data-select" value="random"> </define> -->
 <!--  <define entity="traffic-param" name="model-traffic-select" value="poisson"> </define> -->

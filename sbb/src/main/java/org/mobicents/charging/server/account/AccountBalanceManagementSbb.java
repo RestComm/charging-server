@@ -22,6 +22,7 @@
 
 package org.mobicents.charging.server.account;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import javax.slee.ChildRelation;
@@ -32,9 +33,9 @@ import javax.slee.SbbContext;
 import javax.slee.TransactionRequiredLocalException;
 import javax.slee.facilities.Tracer;
 
+
 import org.mobicents.charging.server.BaseSbb;
 import org.mobicents.charging.server.DiameterChargingServer;
-import org.mobicents.charging.server.account.UnitRequest.SubscriptionIdType;
 import org.mobicents.charging.server.data.DataSource;
 import org.mobicents.charging.server.data.UserAccountData;
 import org.mobicents.slee.ChildRelationExt;
@@ -46,6 +47,7 @@ import org.mobicents.slee.SbbLocalObjectExt;
  * 
  * @author ammendonca
  * @author baranowb
+ * @author rsaranathan
  */
 public abstract class AccountBalanceManagementSbb extends BaseSbb implements Sbb, AccountBalanceManagement {
 
@@ -98,66 +100,47 @@ public abstract class AccountBalanceManagementSbb extends BaseSbb implements Sbb
 	/*
 	 * Initial Request Handling
 	 * 
-	 *  1. Get user balance
-	 *  1.1. If balance is null, user does not exists. return.
-	 *  2. Check if available units is at least greater than 0
-	 *  2.1. If available units is equal or less than zero, send no available units message.
-	 *  3. Grant the most possible units (either requested, or all the available if requested > available)
-	 *  4. Subtract granted units from balance
-	 *  5. Add granted units to reserved units
-	 *  6. Return success
 	 */
-	public void initialRequest(String sessionId, String userId, long requestedAmount) {
+	public void initialRequest(CreditControlInfo ccInfo){
 		if (tracer.isInfoEnabled()) {
-			tracer.info("[>>] SID<" + sessionId + "> Received an Initial Request to Account and Balance Management SBB.");
+			tracer.info("[>>] Received an Initial Request to Account and Balance Management SBB. SessionId="+ccInfo.getSessionId()+", userId="+ccInfo.getSubscriptionId());
 		}
-		handleRequest(new UnitRequest(sessionId, SubscriptionIdType.END_USER_IMSI, userId, requestedAmount));
+		handleRequest(ccInfo);
 	}
 
 	/*
 	 * Update Request Handling
 	 * 
-	 *  1. Get user reserved units
-	 *  2. Check difference between reserved and used units
-	 *  2.1 If more than granted has been used, issue a warning... (do more?)
-	 *  3. Get user balance
-	 *  4. Update balance by adding unused units, if any. (or subtracting exceeded)
-	 *  5. [Optional] Register used units, for informational purposes
-	 *  6. Check if available units is at least greater than 0
-	 *  6.1. If available units is equal or less than zero, send no available units message.
-	 *  7. Grant the most possible units (either requested, or all the available if requested > available)
-	 *  8. Subtract granted units from balance
-	 *  9. Add granted units to reserved units
-	 * 10. Return success
 	 */
-	public void updateRequest(String sessionId, String userId, long requestedAmount, long usedAmount, int requestNumber) {
+	public void updateRequest(CreditControlInfo ccInfo) {
 		if (tracer.isInfoEnabled()) {
-			tracer.info("[>>] SID<" + sessionId + "> Received an Update Request to Account and Balance Management SBB.");
+			tracer.info("[>>] Received an Update Request to Account and Balance Management SBB. SessionId="+ccInfo.getSessionId()+", userId="+ccInfo.getSubscriptionId());
 		}
-		handleRequest(new UnitRequest(sessionId, SubscriptionIdType.END_USER_IMSI, userId, requestedAmount, usedAmount));
+		handleRequest(ccInfo);
 	}
 
 	/*
 	 * Terminate Request Handling
 	 * 
-	 *  1. Get user reserved units
-	 *  2. Check difference between reserved and used units
-	 *  2.1 If more than granted has been used, issue a warning... (do more?)
-	 *  3. Get user balance
-	 *  4. Update balance by adding unused units, if any. (or subtracting exceeded)
-	 *  5. [Optional] Register used units, for informational purposes
 	 */
-	public void terminateRequest(String sessionId, String userId, long requestedAmount, long usedAmount, int requestNumber) {
+	public void terminateRequest(CreditControlInfo ccInfo) {
 		if (tracer.isInfoEnabled()) {
-			tracer.info("[>>] SID<" + sessionId + "> Received an Terminate Request to Account and Balance Management SBB.");
+			tracer.info("[>>] Received a Terminate Request to Account and Balance Management SBB. SessionId="+ccInfo.getSessionId()+", userId="+ccInfo.getSubscriptionId());
 		}
-		handleRequest(new UnitRequest(sessionId, SubscriptionIdType.END_USER_IMSI, userId, requestedAmount, usedAmount));
+		handleRequest(ccInfo);
 	}
 
 	/*
-	 * We just call the Datasource method for getting user account data and once it has the data,
-	 * callback will be called and user account data printed.
+	 * Event Request (IEC, service-type=4) Handling
+	 * 
 	 */
+	public void eventRequest(CreditControlInfo ccInfo){
+		if (tracer.isInfoEnabled()) {
+			tracer.info("[>>] Received an Event Request to Account and Balance Management SBB. SessionId="+ccInfo.getSessionId()+", userId="+ccInfo.getSubscriptionId());
+		}
+		handleRequest(ccInfo);
+	}
+
 	public void dump(String usersRegExp) {
 		if (tracer.isInfoEnabled()) {
 			DataSource ds = null;
@@ -170,53 +153,102 @@ public abstract class AccountBalanceManagementSbb extends BaseSbb implements Sbb
 			}
 		}
 	}
+	
+	public void dump(CreditControlInfo ccInfo, UserAccountData uad) {
+		if (tracer.isInfoEnabled()) {
+			tracer.info(String.format("%20s | %10s | %10s | %10s | %10s | %10s | %20s |", "MSISDN", "Balance", "Reserved Units", "Reserved Amount", "Used Units", "Used Amount", "Unit Type"));
+			tracer.info("---------------------+------------+----------------+-----------------+------------+-------------+----------------------+");
+			
+			String msisdn = uad.getMsisdn();
+			long bal = uad.getBalance();
+			
+			ArrayList<CreditControlUnit> ccUnits = ccInfo.getCcUnits();
+			for (int i = 0; i < ccUnits.size(); i++) {
+				CreditControlUnit ccUnit = ccUnits.get(i);
+				long reserv = ccUnit.getReservedUnits();
+				long reservAmt = ccUnit.getReservedAmount();
+				long used = ccUnit.getUsedUnits();
+				long usedAmt = ccUnit.getUsedAmount(); 				
+				if (i == 0) {
+					tracer.info(String.format("%20s | %10s | %14s | %15s | %10s | %11s | %20s |", msisdn, bal, reserv, reservAmt, used, usedAmt, ccUnit.getUnitType()));
+				}
+				else {
+					tracer.info(String.format("%20s | %10s | %14s | %15s | %10s | %11s | %20s |", "", "", reserv, reservAmt, used, usedAmt, ccUnit.getUnitType()));
+				}
+			}
+			
+		}
+	}
 
 	// ---------------------------- Helper Methods ----------------------------
 
-	private void handleRequest(UnitRequest unitRequest) {
+	private void handleRequest(CreditControlInfo ccInfo) {
 		if (tracer.isInfoEnabled()) {
-			tracer.info("[><] SID<" + unitRequest.getSessionId() + "> Handling Credit-Control-Request.");
+			tracer.info("[><] SID<" + ccInfo.getSessionId() + "> Handling Credit-Control-Request...");
 		}
 
 		if (bypass) {
 			if (tracer.isInfoEnabled()) {
-				tracer.info("[><] SID<" + unitRequest.getSessionId() + "> Bypassing Unit Reservation...");
+				tracer.info("[><] SID<" + ccInfo.getSessionId() + "> Bypassing Unit Reservation...");
 			}
-			UnitReservation ur = new UnitReservation(true, unitRequest.getRequestedAmount(), unitRequest.getSessionId(), System.currentTimeMillis());
-			((DiameterChargingServer)sbbContext.getSbbLocalObject().getParent()).resumeOnCreditControlRequest(ur);
+			
+			ccInfo.setSuccess(true);
+			((DiameterChargingServer)sbbContext.getSbbLocalObject().getParent()).resumeOnCreditControlRequest(ccInfo);
 		}
 
-		// get user current balance
 		DataSource ds = null;
 		try {
 			ds = getDatasource();
-			ds.requestUnits(unitRequest);
+			ds.requestUnits(ccInfo);
 		}
 		catch (Exception e) {
 			tracer.severe("[xx] Unable to obtain Datasource Child SBB", e);
 		}
 	}
 
-	private void handleResponse(UnitRequest unitRequest, UserAccountData data) {
+	private void handleResponse(CreditControlInfo ccInfo, UserAccountData data) {
 		// We got a response, so let's look at it
-		UnitReservation ur = null;
-		if (data.isFailure()) {
-			if (data.getImsi() == null) {
-				ur = new UnitReservation(404L, "Invalid User", unitRequest.getSessionId(), System.currentTimeMillis());	
-			}
-			else if (data.getReserved() > 0) {
-				ur = new UnitReservation(503L, "No Units Available", unitRequest.getSessionId(), System.currentTimeMillis());
+		CreditControlInfo ccIA = ccInfo;
+		
+		//tracer.info("Unit Request: "+unitRequest+" UserAccountData: "+data);
+		
+		if (data != null) {
+			if (data.isFailure()) {
+				//ccIA.setSessionId(ccInfo.getSessionId());
+				//ccIA.setEventTimestamp(System.currentTimeMillis());
+				//ccIA.setSubscriptionId(ccInfo.getSubscriptionId());
+				if (data.getMsisdn() == null) {
+					ccIA.setErrorCode(404L);
+					ccIA.setErrorMessage("Invalid User");
+				}
+				else if (ccInfo.getCcUnits().get(0).getRequestedUnits() > 0) {
+					ccIA.setErrorCode(503L);
+					ccIA.setErrorMessage("No Units Available");
+				}
+				else{
+					ccIA.setErrorCode(503L);
+					ccIA.setErrorMessage("Other Error");
+					// TODO: Expand response code list. Determine what else could cause number of rows updated to be <> 1 and return appropriate response.
+				}
+			} 
+			else {
+				ccIA = reserveUnits(ccInfo);
 			}
 		}
 		else {
-			ur = reserveUnits(unitRequest.getSessionId(), unitRequest.getSubscriptionId(), unitRequest.getRequestedAmount(), data.getReserved());
+			//Data was null... JDBC issues? Need to handle appropriately.
 		}
+		
+		((DiameterChargingServer)sbbContext.getSbbLocalObject().getParent()).resumeOnCreditControlRequest(ccIA);
 
-		((DiameterChargingServer)sbbContext.getSbbLocalObject().getParent()).resumeOnCreditControlRequest(ur);
+		// Print the session info here.
+		dump(ccIA, data);
 	}
 
-	private UnitReservation reserveUnits(String sessionId, String userId, long requestedAmount, long availableAmount) {
-		return new UnitReservation(true, requestedAmount, sessionId, System.currentTimeMillis());
+	private CreditControlInfo reserveUnits(CreditControlInfo ccInfo) {
+		ccInfo.setSuccess(true);
+		ccInfo.setEventTimestamp(System.currentTimeMillis());
+		return ccInfo;
 	}
 
 	// ---------------------- Datasource Child SBB Callbacks ------------------
@@ -224,25 +256,24 @@ public abstract class AccountBalanceManagementSbb extends BaseSbb implements Sbb
 	@Override
 	public void getAccountDataResult(List<UserAccountData> result) {
 		if (tracer.isInfoEnabled()) {
-			tracer.info(String.format("%20s | %10s | %10s | %10s |", "User ID", "Balance", "Reserved", "Used"));
-			tracer.info("---------------------+------------+------------+------------+");
+			tracer.info(String.format("%20s | %10s |", "User ID", "Balance"));
+			tracer.info("---------------------+------------+");
 			for (UserAccountData uad : result) {
-				tracer.info(String.format("%20s | %10s | %10s | %10s |", uad.getImsi(), uad.getBalance(), uad.getReserved(), "N/A"));
-			}
+				tracer.info(String.format("%20s | %10s |", uad.getMsisdn(), uad.getBalance()));
+			}			
 		}
 	}
 
 	@Override
-	public void reserveUnitsResult(UnitRequest unitRequest, UserAccountData uad) {
+	public void reserveUnitsResult(CreditControlInfo ccInfo, UserAccountData uad) {
 		if (tracer.isInfoEnabled()) {
-			tracer.info("[><] SID<" + unitRequest.getSessionId() + "> Just received UPDATE callback from DataSource Child SBB.");
-			tracer.info("[><] SID<" + unitRequest.getSessionId() + "> Received Reserve Units Result: " + uad + " (Request: " + unitRequest + ").");
+			//tracer.info("[><] SID<" + ccInfo.getSessionId() + "> Just received UPDATE callback from DataSource Child SBB (Credit Control Info Result) Processing response...");
+			tracer.info("[><] SID<" + ccInfo.getSessionId() + "> Received Credit Control Info Result: \n" + uad + "\n" + ccInfo);
 		}
-		handleResponse(unitRequest, uad);
+		handleResponse(ccInfo, uad);
 	}
 
 	public void setBypass(boolean bypass) {
 		this.bypass = bypass;
 	}
-
 }

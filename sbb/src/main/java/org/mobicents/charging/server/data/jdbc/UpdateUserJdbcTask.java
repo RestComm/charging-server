@@ -32,26 +32,25 @@ import javax.slee.transaction.SleeTransaction;
 import org.mobicents.charging.server.DiameterChargingServer;
 import org.mobicents.slee.resource.jdbc.task.JdbcTaskContext;
 
+/**
+ * 
+ * @author ammendonca
+ * @author rsaranathan
+ */
 public class UpdateUserJdbcTask extends DataSourceJdbcTask {
 
-	private long reserved;
 	private long balance;
 	private String msisdn;
-
 	private final Tracer tracer;
 
 	public UpdateUserJdbcTask(String msisdn, Tracer tracer) {
-		this(msisdn, 0, 0, tracer);
+		this.msisdn = msisdn;
+		this.tracer = tracer;
 	}
 
 	public UpdateUserJdbcTask(String msisdn, long balance, Tracer tracer) {
-		this(msisdn, balance, 0, tracer);
-	}
-
-	public UpdateUserJdbcTask(String msisdn, long balance, long reserved, Tracer tracer) {
 		this.msisdn = msisdn;
 		this.balance = balance;
-		this.reserved = reserved;
 		this.tracer = tracer;
 	}
 
@@ -62,11 +61,12 @@ public class UpdateUserJdbcTask extends DataSourceJdbcTask {
 			tx = taskContext.getSleeTransactionManager().beginSleeTransaction();
 			Connection connection = taskContext.getConnection();
 			// static value of query string, since its widely used :)
-			PreparedStatement preparedStatement = connection
-					.prepareStatement(DataSourceSchemaInfo._QUERY_INSERT);
+			PreparedStatement preparedStatement = connection.prepareStatement(DataSourceSchemaInfo._QUERY_INSERT);
 			preparedStatement.setString(1, msisdn);
 			preparedStatement.setFloat(2, balance);
-			preparedStatement.setFloat(3, reserved);
+			preparedStatement.setDate(3, null);
+			preparedStatement.setTimestamp(4, null);
+			preparedStatement.setString(5, "Active");
 			int inserts = preparedStatement.executeUpdate();
 
 			tx.commit();

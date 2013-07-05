@@ -13,7 +13,7 @@
 
 	<artifactId>charging-server-sbb</artifactId>
 
-	<name>Mobicents :: ${pom.artifactId} v${pom.version}</name>
+	<name>Mobicents :: ${project.artifactId} v${project.version}</name>
 
 	<dependencies>
 		<dependency>
@@ -21,7 +21,7 @@
 			<artifactId>jain-slee-11-ext</artifactId>
 			<scope>compile</scope>
 		</dependency>
- 		<dependency>
+		<dependency>
 			<groupId>org.mobicents.resources</groupId>
 			<artifactId>mobicents-slee-ra-diameter-cca-ratype</artifactId>
 		</dependency>
@@ -32,6 +32,10 @@
 		<dependency>
 			<groupId>org.mobicents.resources</groupId>
 			<artifactId>mobicents-slee-ra-jdbc-ratype</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.mobicents.resources</groupId>
+			<artifactId>http-client-ratype</artifactId>
 		</dependency>
 	</dependencies>
 

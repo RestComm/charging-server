@@ -26,21 +26,20 @@ package org.mobicents.charging.server.data;
  * POJO for returning User Account Data
  * 
  * @author ammendonca
+ * @author rsaranathan
  */
 public class UserAccountData {
 
-	private String imsi = null;
+	private String msisdn = null;
 	private long balance = 0;
-	private long reserved = 0;
-
 	private boolean failure = false;
 
-	public String getImsi() {
-		return imsi;
+	public String getMsisdn() {
+		return msisdn;
 	}
 
-	public void setImsi(String imsi) {
-		this.imsi = imsi;
+	public void setMsisdn(String msisdn) {
+		this.msisdn= msisdn;
 	}
 
 	public long getBalance() {
@@ -49,14 +48,6 @@ public class UserAccountData {
 
 	public void setBalance(long balance) {
 		this.balance = balance;
-	}
-
-	public long getReserved() {
-		return reserved;
-	}
-
-	public void setReserved(long reserved) {
-		this.reserved = reserved;
 	}
 
 	public boolean isFailure() {
@@ -69,6 +60,6 @@ public class UserAccountData {
 
 	@Override
 	public String toString() {
-		return "UserAccountData[IMSI=" + imsi + "; BALANCE=" + balance + "; RESERVED=" + reserved + ";]";
+		return "UserAccountData[MSISDN=" + msisdn + "; BALANCE=" + balance + "; FAILURE=" + failure + "]";
 	}
 }

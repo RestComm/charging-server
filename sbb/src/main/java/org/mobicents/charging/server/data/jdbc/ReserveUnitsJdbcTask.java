@@ -23,73 +23,129 @@
 package org.mobicents.charging.server.data.jdbc;
 
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.util.ArrayList;
 
 import javax.slee.SbbLocalObject;
 import javax.slee.facilities.Tracer;
 
 import org.mobicents.charging.server.account.AccountBalanceManagement;
-import org.mobicents.charging.server.account.UnitRequest;
+import org.mobicents.charging.server.account.CreditControlInfo;
+import org.mobicents.charging.server.account.CreditControlUnit;
 import org.mobicents.charging.server.data.UserAccountData;
 import org.mobicents.slee.resource.jdbc.task.JdbcTaskContext;
 
+/**
+ * @author ammendonca
+ * @author rsaranathan
+ */
 public class ReserveUnitsJdbcTask extends DataSourceJdbcTask {
 
-	private UnitRequest unitRequest = null;
+	private CreditControlInfo ccInfo = null;
 	private UserAccountData accountData = null;
 
 	private String msisdn;
-	private Long requestedUnits;
-	private Long usedUnits;
+	private ArrayList<CreditControlUnit> ccUnits;
 
 	private Tracer tracer;
 
-	public ReserveUnitsJdbcTask(UnitRequest unitRequest, Tracer tracer) {
-		this.unitRequest = unitRequest;
-		this.msisdn = unitRequest.getSubscriptionId();
-		this.requestedUnits = unitRequest.getRequestedAmount();
-		this.usedUnits = unitRequest.getUsedAmount();
+	public ReserveUnitsJdbcTask(CreditControlInfo ccInfo, Tracer tracer) {
+		this.ccInfo = ccInfo;
+		this.msisdn = ccInfo.getSubscriptionId();
+		this.ccUnits = ccInfo.getCcUnits();
 		this.tracer = tracer;
 	}
 
 	@Override
 	public Object executeSimple(JdbcTaskContext taskContext) {
 		try {
-			int n = 1;
-			PreparedStatement preparedStatement = taskContext.getConnection().prepareStatement(DataSourceSchemaInfo._QUERY_RESERVE);
-			preparedStatement.setLong(n++, usedUnits);
-			preparedStatement.setLong(n++, requestedUnits);
-			//preparedStatement.setLong(n++, usedUnits);
-			preparedStatement.setLong(n++, requestedUnits);
-			preparedStatement.setString(n++, msisdn);
-			preparedStatement.setLong(n++, usedUnits);
-			preparedStatement.setLong(n++, requestedUnits);
-			tracer.info(("[//] Executing DB Statement '" + DataSourceSchemaInfo._QUERY_RESERVE).
-					replaceFirst("\\?", usedUnits.toString()).
-					replaceFirst("\\?", requestedUnits.toString()).
-					replaceFirst("\\?", usedUnits.toString()).
-					//replaceFirst("\\?", requestedUnits.toString()).
-					replaceFirst("\\?", msisdn).
-					replaceFirst("\\?", usedUnits.toString()).
-					replaceFirst("\\?", requestedUnits.toString()));
-
-			accountData = new UserAccountData();
-			accountData.setImsi(msisdn);
-
-			if (preparedStatement.executeUpdate() == 1) {
-				// we are good, we have updated
-				accountData.setBalance(Long.MAX_VALUE); // FIXME
-				accountData.setReserved(requestedUnits);
-				accountData.setFailure(false);
+			long balance = 0;
+			// get Balance Before (can this be made more efficient?)
+			PreparedStatement preparedStatement = taskContext.getConnection().prepareStatement(DataSourceSchemaInfo._QUERY_SELECT);
+			preparedStatement.setString(1, msisdn);
+			preparedStatement.execute();
+			ResultSet resultSet = preparedStatement.getResultSet();
+			while (resultSet.next()) {
+				balance = resultSet.getLong(DataSourceSchemaInfo._COL_BALANCE);
+				ccInfo.setBalanceBefore(balance);
 			}
-			else {
-				// check what kind of error happened
-				accountData.setBalance(0);
-				accountData.setReserved(0);
-				accountData.setFailure(true);
+			
+			for(int i=0; i<ccUnits.size();i++){
+				CreditControlUnit ccUnit = ccUnits.get(i);
+				if(balance<=0 && ccUnit.getRateForService()>0){
+					accountData = new UserAccountData();
+					accountData.setMsisdn(msisdn);
+					accountData.setBalance(0);
+					accountData.setFailure(true);
+					ccUnit.setReservedUnits(0);
+					ccUnit.setReservedAmount(0);
+					if(tracer.isInfoEnabled()){
+						tracer.info("[//] User does not have sufficient balance for reservation. Balance available: "+balance+".");
+					}
+					break;
+				}else{
+					long reservedAmount = ccUnit.getReservedAmount();
+					long usedAmount = ccUnit.getUsedAmount();
+					long requestedAmount = ccUnit.getRequestedAmount();
+					long requestedUnits = ccUnit.getRequestedUnits();
+					if(ccUnit.getRateForService()>0){
+						//If RSU < balance, reserve and set GSU=balance	
+						if((reservedAmount-usedAmount+requestedAmount)>balance){
+							long newRequestedAmount = balance;
+							long newRequestedUnits = (long) Math.floor(newRequestedAmount/ccUnit.getRateForService()); 
+							if(tracer.isInfoEnabled()){
+								tracer.info("[//] User does not have sufficient balance for the entire reservation request ("+requestedUnits+" " + ccUnit.getUnitType() + " units @rate="+ccUnit.getRateForService()+"). Balance available: "+balance+". Reserving "+newRequestedUnits+" units instead ...");
+							}
+							requestedAmount = newRequestedAmount;
+							requestedUnits = newRequestedUnits;
+							//TODO: Need to set Final Unit Indication for this case.
+							// See http://www.ietf.org/rfc/rfc4006.txt, 8.34.  Final-Unit-Indication AVP
+							
+						}
+					}
+	
+					int n = 1;
+					tracer.info(("[//] Executing DB Statement '" + DataSourceSchemaInfo._QUERY_RESERVE).
+							replaceFirst("\\?", String.valueOf(reservedAmount-usedAmount)).
+							replaceFirst("\\?", String.valueOf(requestedAmount)).
+							replaceFirst("\\?", msisdn)
+							);
+					preparedStatement = taskContext.getConnection().prepareStatement(DataSourceSchemaInfo._QUERY_RESERVE);
+					preparedStatement.setLong(n++, (reservedAmount-usedAmount));
+					preparedStatement.setLong(n++, requestedAmount);
+					preparedStatement.setString(n++, msisdn);
+		
+					accountData = new UserAccountData();
+					accountData.setMsisdn(msisdn);
+		
+					if (preparedStatement.executeUpdate() == 1) {
+						// ok great, we have successfully reserved the units
+						preparedStatement = taskContext.getConnection().prepareStatement(DataSourceSchemaInfo._QUERY_SELECT);
+						preparedStatement.setString(1, msisdn);
+						//tracer.info(("[//] Executing DB Statement '" + DataSourceSchemaInfo._QUERY_SELECT).replaceFirst("\\?", msisdn));
+						preparedStatement.execute();
+						resultSet = preparedStatement.getResultSet();
+						while (resultSet.next()) {
+							balance = resultSet.getLong(DataSourceSchemaInfo._COL_BALANCE);
+							accountData.setBalance(balance);
+							accountData.setFailure(false);
+							ccUnit.setReservedUnits(requestedUnits);
+							ccUnit.setReservedAmount(requestedAmount);
+							ccInfo.setBalanceAfter(balance);
+						}
+					}
+					else {
+						// check what kind of error happened
+						accountData.setBalance(0);
+						accountData.setFailure(true);
+						ccUnit.setReservedUnits(0);
+						ccUnit.setReservedAmount(0);
+					}
+				}
 			}
 		}
 		catch (Exception e) {
-			tracer.severe("Failed to execute task to get Account Data for MSIDN '" + msisdn + "'", e);
+			tracer.severe("[xx] Failed to execute task to Reserve Units for MSISDN '" + msisdn + "'", e);
 		}
 		return this;
 	}
@@ -100,12 +156,11 @@ public class ReserveUnitsJdbcTask extends DataSourceJdbcTask {
 
 	@Override
 	public void callBackParentOnException(SbbLocalObject parent) {
-		((AccountBalanceManagement) parent).reserveUnitsResult(unitRequest, accountData);
+		((AccountBalanceManagement) parent).reserveUnitsResult(ccInfo, accountData);
 	}
 
 	@Override
 	public void callBackParentOnResult(SbbLocalObject parent) {
-		((AccountBalanceManagement) parent).reserveUnitsResult(unitRequest, accountData);
+		((AccountBalanceManagement) parent).reserveUnitsResult(ccInfo, accountData);
 	}
-
 }

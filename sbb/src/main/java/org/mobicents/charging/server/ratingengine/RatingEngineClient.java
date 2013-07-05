@@ -1,6 +1,6 @@
 /*
  * TeleStax, Open Source Cloud Communications
- * Copyright 2012, TeleStax and individual contributors as indicated
+ * Copyright 2013, TeleStax and individual contributors as indicated
  * by the @authors tag. See the copyright.txt in the distribution for
  * a full listing of individual contributors.
  *
@@ -20,21 +20,17 @@
  * 02110-1301 USA, or see the FSF site: http://www.fsf.org.
  */
 
-package org.mobicents.charging.server;
+package org.mobicents.charging.server.ratingengine;
 
-import org.mobicents.charging.server.account.CreditControlInfo;
+import java.util.HashMap;
 
-public interface DiameterChargingServer {
+/**
+ * Interface to retrieve the rate from an external Rating Engine.
+ * 
+ * @author rsaranathan
+ */
+public interface RatingEngineClient {
 
-	/**
-	 * Callback for resuming handling of Credit-Control-Request.
-	 * 
-	 * @param ccInfo
-	 */
-	public void resumeOnCreditControlRequest(CreditControlInfo ccInfo);
-
-	// Datasource Callbacks -----------------------------------------------------
-
-	public void updateAccountDataResult(boolean success);
-
+	@SuppressWarnings("rawtypes")
+	RatingInfo getRateForService(HashMap params);
 }

@@ -22,12 +22,13 @@
 
 package org.mobicents.charging.server.data;
 
-import org.mobicents.charging.server.account.UnitRequest;
+import org.mobicents.charging.server.account.CreditControlInfo;
 
 /**
  * Interface with operations to interact with datasource.
  * 
  * @author ammendonca
+ * @author rsaranathan
  */
 public interface DataSource {
 
@@ -46,17 +47,16 @@ public interface DataSource {
 	/**
 	 * Places a new initial/update/terminate request for a user.
 	 * 
-	 * @param unitRequest
+	 * @param ccInfo
 	 */
-	public void requestUnits(UnitRequest unitRequest);
+	public void requestUnits(CreditControlInfo ccInfo);
 
 	/**
-	 * Update user with specific msisdn. Overwrites balance and reserved.
+	 * Update user with specific msisdn. Overwrites balance.
 	 * 
 	 * @param msisdn
 	 * @param balance
-	 * @param reserved
 	 */
-	public void updateUser(String msisdn, long balance, long reserved);
+	public void updateUser(String msisdn, long balance);
 
 }
