@@ -1,0 +1,109 @@
+<div class="row-fluid">
+    <div class="span4">
+        <form class="form-inline">
+        <input type="text" class="input-large search-query" ng-model="query.MSISDN" ng-change="filter()" placeholder="Filter" />
+        </form>
+    </div>
+    <div class="span2">
+    </div>
+    <div class="span4">
+    </div>
+    <div class="span2">
+        <button class="btn btn-success pull-right" ng-click="showCreateNewUser()"><i class="icon-user"></i> Add User</button>
+    </div>
+</div>
+
+<div class="row-fluid">
+<div class="span12">
+<table id="users" class="table table-condensed  table-striped table-hover" ng-init="getUsers()">
+    <thead>
+        <tr>
+            <th>MSISDN <button class="btn-link" ng-click="sortColumn = 'MSISDN'; reverse = !reverse;"><i class="icon-sort" ng-class="sortColumn == 'MSISDN' ? (reverse ? 'icon-sort-down active' : 'icon-sort-up active') : ''"></i></button></th>
+            <th>Balance<button class="btn-link" ng-click="sortColumn = 'BALANCE'; reverse = !reverse;"><i class="icon-sort" ng-class="sortColumn == 'BALANCE' ? (reverse ? 'icon-sort-down active' : 'icon-sort-up active') : ''"></i></button></th>
+            <th>Expiry Date<button class="btn-link" ng-click="sortColumn = 'EXP_DATE'; reverse = !reverse;"><i class="icon-sort" ng-class="sortColumn == 'EXP_DATE' ? (reverse ? 'icon-sort-down active' : 'icon-sort-up active') : ''"></i></button></th>
+            <th>Last Adjustment<button class="btn-link" ng-click="sortColumn = 'LAST_ADJ'; reverse = !reverse;"><i class="icon-sort" ng-class="sortColumn == 'LAST_ADJ' ? (reverse ? 'icon-sort-down active' : 'icon-sort-up active') : ''"></i></button></th>
+            <th>Reserved<button class="btn-link" ng-click="sortColumn = 'RESERVED'; reverse = !reverse;"><i class="icon-sort" ng-class="sortColumn == 'RESERVED' ? (reverse ? 'icon-sort-down active' : 'icon-sort-up active') : ''"></i></button></th>
+            <th>&nbsp;</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr ng-repeat="user in filtered = (usersList | filter:query | orderBy: sortColumn:reverse) | startFrom:(currentPage-1)*entryLimit | limitTo:entryLimit" ng-class="{'warning' : user.RESERVED > 0 && user.BALANCE >= 0, 'error' : user.BALANCE < 0}">
+            <td><a href="#/users/{{user.MSISDN}}">{{ user.MSISDN }}</a></td>
+            <td>{{ user.BALANCE }} <button class="btn btn-mini pull-right" rel="tooltip" data-placement="right" title="Edit {{ user.MSISDN }} Balance" ng-click="editUserBalance(user)"><i class="icon-pencil"></i></button></td>
+            <td><div class="muted text-center">N/A</div></td>
+            <td><div class="muted text-center">N/A</div></td>
+            <td>{{ user.RESERVED }} <button class="btn btn-mini pull-right" tooltip="Sanitize Balance" ng-click="confirmBalanceSanitize(user)"><i class="icon-reply-all"></i></button>&nbsp;</td>
+            <td><button class="btn btn-mini btn-danger" ng-click="confirmUserDelete(user)"><i class="icon-trash"></i></button>&nbsp;</td>
+        </tr>
+    </tbody>
+    <tfoot>
+        <td><small class="pull-left">{{ filtered.length }} User{{ filtered.length == 1 ? "" : "s" }}</small></td>
+        <td colspan=3>
+            <form class="form-inline text-center">
+                <h6>Items / Page</h6>
+                <div class="btn-group buttons-per-page" data-toggle="buttons-radio">
+                    <button type="button" class="btn btn-small" ng-class="entryLimit == 10 ? 'active' : ''" ng-click="setEntryLimit(10)">10</button>
+                    <button type="button" class="btn btn-small" ng-class="entryLimit == 25 ? 'active' : ''" ng-click="setEntryLimit(25)">25</button>
+                    <button type="button" class="btn btn-small" ng-class="entryLimit == 50 ? 'active' : ''" ng-click="setEntryLimit(50)">50</button>
+                </div>
+            </form>
+        </td>
+        <td colspan="99">
+            <pagination class="pagination pagination-small pull-right" data-num-pages="noOfPages" data-boundary-links="true" data-current-page="currentPage" max-size="maxSize" ></pagination>
+        </td>
+    </tfoot>
+</table></div></div>
+<p><small class="pull-right">Updated at {{ lastUpdated }}</small></p>
+
+<div modal="editingUserBalance" close="closeEditUserBalance()" options="opts">
+    <div class="modal-header">
+        <h3>Edit User Balance</h3>
+    </div>
+    <div class="modal-body modal-user-balance">
+        <dl class="dl-horizontal">
+            <dt>MSISDN</dt>
+            <dd>{{ selectedUser.MSISDN }}</dd>
+            <dt>Current Balance</dt>
+            <dd>{{ selectedUser.BALANCE }}</dd>
+            <dt>New Balance</dt>
+            <dd><input id="new-balance" ng-model="selectedUser.newBalance" type="number" placeholder="0.0" autofocus /></dd>
+            <dt>Change</dt>
+            <dd><label class="label label-{{ (selectedUser.newBalance - selectedUser.BALANCE > 0 ? 'success' : selectedUser.newBalance - selectedUser.BALANCE < 0 ? 'important' : 'inverse' ) }}">{{ (selectedUser.newBalance - selectedUser.BALANCE > 0 ? '+ ' : selectedUser.newBalance - selectedUser.BALANCE < 0 ? '- ' : '') + Math.abs(selectedUser.newBalance - selectedUser.BALANCE)}}</label></dd>
+        </dl>
+        <div >
+            <alert ng-show="$parent.flash.message" type="flash.type" close="flash.message = ''">{{ flash.message }}</alert>
+        </div>
+    </div>
+    <div class="modal-footer">
+        <button class="btn cancel" ng-click="closeEditUserBalance()">Cancel</button>
+        <button class="btn btn-primary" ng-click="setUserBalance(selectedUser)">Save changes</button>
+    </div>
+</div>
+
+<div modal="creatingNewUser" close="closeCreateNewUser()" options="opts">
+    <div class="modal-header">
+        <h3><i class="icon-user"></i> Add User</h3>
+    </div>
+    <div class="modal-body modal-new-user">
+        <dl class="dl-horizontal">
+            <dt>MSISDN</dt>
+            <dd><input id="new-user-MSISDN" ng-model="newUser.MSISDN" type="number" placeholder="MSISDN" min="1" required autofocus /></dd>
+            <dt>Balance</dt>
+            <dd><input id="new-user-balance" ng-model="newUser.BALANCE" type="number" placeholder="0.0" /></dd>
+        </dl>
+        <alert ng-show="$parent.flash.message" type="flash.type" close="flash.message = ''">{{ flash.message }}</alert>
+    </div>
+    <div class="modal-footer">
+        <button class="btn cancel" ng-click="closeCreateNewUser()">Cancel</button>
+        <button class="btn btn-primary" ng-click="createNewUser(newUser)">Create</button>
+    </div>
+</div>
+
+<script type="text/javascript">
+    $('body').tooltip({
+        selector: '[rel="tooltip"]'
+    });
+    $('#myModal').on('shown', function () {
+        $('#new-balance').focus();
+    })
+</script>

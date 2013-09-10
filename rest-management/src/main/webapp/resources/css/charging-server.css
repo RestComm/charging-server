@@ -1,0 +1,58 @@
+body {
+    background-image: url('../img/background.png');
+}
+
+.brand {
+    vertical-align: bottom;
+}
+
+.logo-image {
+    margin-top: -7px;
+}
+
+.user-name {
+    font-size: 1.2em;
+    margin-top: 15px;
+    vertical-align: sub;
+}
+
+#left-sidebar li {
+    line-height: 60px;
+}
+
+#left-sidebar li > a {
+    border-radius: 10px;
+}
+
+#footer {
+    opacity: 0.5;
+}
+
+/* -- Users List ------------------------------------------------------------ */
+
+#users th i {
+    vertical-align: sub;
+    opacity: 0.2;
+    text-decoration: none;
+}
+
+#users th i.active {
+    opacity: 1.0;
+    font-size: 1.1em;
+}
+
+#users td {
+    vertical-align: middle;
+}
+
+.pagination {
+    cursor: pointer;
+}
+
+.buttons-per-page {
+    margin-top: -6px;
+}
+
+.modal-user-balance dt, .modal-user-balance dd, .modal-new-user dt, .modal-new-user dd {
+    height: 36px;
+}

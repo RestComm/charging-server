@@ -28,3 +28,7 @@ target
 Icon?
 ehthumbs.db
 Thumbs.db
+
+# JRebel Generated #
+####################
+rebel.xml

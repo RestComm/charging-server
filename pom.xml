@@ -22,6 +22,7 @@
 	<modules>
 		<module>sbb</module>
 		<module>du</module>
+		<module>rest-management</module>
 	</modules>
 
 	<properties>
