@@ -36,6 +36,7 @@ public class DataSourceSchemaInfo {
 
 	public static final String _COL_MSISDN = "MSISDN";
 	public static final String _COL_BALANCE = "BALANCE";
+	public static final String _COL_RESERVED = "RESERVED";
 	public static final String _COL_BALANCE_EXPIRY_DATE = "BAL_EXPIRY_DATE";
 	public static final String _COL_BAL_LAST_ADJUSTED = "BAL_LAST_ADJUSTED";
 	public static final String _COL_USER_STATUS = "USER_STATUS";
@@ -49,6 +50,7 @@ public class DataSourceSchemaInfo {
 			+ " (" 
 			+ _COL_MSISDN 				+ " VARCHAR(255) NOT NULL, "
 			+ _COL_BALANCE 				+ " FLOAT NOT NULL, "
+			+ _COL_RESERVED 			+ " FLOAT, "
 			+ _COL_BALANCE_EXPIRY_DATE 	+ " DATE NULL, "
 			+ _COL_BAL_LAST_ADJUSTED 	+ " TIMESTAMP NULL, "
 			+ _COL_USER_STATUS 			+ " VARCHAR(50) NOT NULL, "
@@ -82,7 +84,8 @@ public class DataSourceSchemaInfo {
 	public static final String _QUERY_RESERVE = 
 			"UPDATE " + _TBL_USERS +
 			//                                          B = B + (G - U) - R
-			" SET " + _COL_BALANCE + " = " + _COL_BALANCE + " + ? - ? " +
+			" SET " + _COL_BALANCE + " = " + _COL_BALANCE + " + ? - ?, " +
+			_COL_RESERVED + " = " + " ? "+
 			"WHERE " + _COL_MSISDN + " = ?";
 	
 	public static void main(String[] args) {

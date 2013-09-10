@@ -108,10 +108,12 @@ public class ReserveUnitsJdbcTask extends DataSourceJdbcTask {
 					tracer.info(("[//] Executing DB Statement '" + DataSourceSchemaInfo._QUERY_RESERVE).
 							replaceFirst("\\?", String.valueOf(reservedAmount-usedAmount)).
 							replaceFirst("\\?", String.valueOf(requestedAmount)).
+							replaceFirst("\\?", String.valueOf(requestedAmount)).
 							replaceFirst("\\?", msisdn)
 							);
 					preparedStatement = taskContext.getConnection().prepareStatement(DataSourceSchemaInfo._QUERY_RESERVE);
 					preparedStatement.setLong(n++, (reservedAmount-usedAmount));
+					preparedStatement.setLong(n++, requestedAmount);
 					preparedStatement.setLong(n++, requestedAmount);
 					preparedStatement.setString(n++, msisdn);
 		

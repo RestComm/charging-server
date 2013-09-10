@@ -22,7 +22,9 @@
 
 package org.mobicents.charging.server.ratingengine.http;
 
+import java.io.IOException;
 import java.io.StringReader;
+import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -34,7 +36,9 @@ import javax.naming.NamingException;
 import javax.slee.ActivityContextInterface;
 import javax.slee.Sbb;
 import javax.slee.SbbContext;
+import javax.slee.SbbLocalObject;
 import javax.slee.facilities.Tracer;
+import javax.slee.resource.StartActivityException;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 
@@ -51,8 +55,10 @@ import org.apache.http.client.methods.HttpPost;
 import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.util.EntityUtils;
 import org.mobicents.charging.server.BaseSbb;
+import org.mobicents.charging.server.DiameterChargingServer;
 import org.mobicents.charging.server.ratingengine.RatingEngineClient;
 import org.mobicents.charging.server.ratingengine.RatingInfo;
+import org.mobicents.slee.SbbContextExt;
 import org.w3c.dom.CharacterData;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -61,22 +67,25 @@ import org.w3c.dom.NodeList;
 import org.xml.sax.InputSource;
 
 /**
- * This is a simple service for testing HTTP
+ * SBB for Rating Engine Client implementation in HTTP
  * 
  * @author rsaranathan
+ * @author ammendonca
  * 
  */
 public abstract class HTTPClientSbb extends BaseSbb implements Sbb, RatingEngineClient {
 
 	private Tracer tracer;
 
-	private SbbContext sbbContext; // This SBB's SbbContext
+	private SbbContextExt sbbContext; // This SBB's SbbContext
 
 	private HttpClientActivityContextInterfaceFactory httpClientAci;
 
 	private HttpClientResourceAdaptorSbbInterface raSbbInterface;
 
 	private String httpURLString;
+
+	private boolean sync = true;
 
 	/*
 	 * (non-Javadoc)
@@ -85,8 +94,8 @@ public abstract class HTTPClientSbb extends BaseSbb implements Sbb, RatingEngine
 	 */
 	public void setSbbContext(SbbContext context) {
 
-		this.sbbContext = context;
-		this.tracer = sbbContext.getTracer("CS-REClient-HTTP");
+		this.sbbContext = (SbbContextExt) context;
+		this.tracer = sbbContext.getTracer("CS-RF-HTTP");
 
 		try {
 			Context ctx = (Context) new InitialContext().lookup("java:comp/env");
@@ -105,108 +114,164 @@ public abstract class HTTPClientSbb extends BaseSbb implements Sbb, RatingEngine
 
 	// CMP Fields
 
-	public abstract void setFeedHashCode(int feedHashCode);
-
-	public abstract int getFeedHashCode();
-
 	// Event handler methods
 	public void onResponseEvent(ResponseEvent event, ActivityContextInterface aci) {
 		HttpResponse response = event.getHttpResponse();
-		tracer.info("********** onResponseEvent **************");
-		tracer.info("URI = " + event.getRequestApplicationData());
-		tracer.info("Status Code = " + response.getStatusLine().getStatusCode());
-		try {
-			tracer.info("Response Body = " + EntityUtils.toString(response.getEntity()));
+		if (tracer.isInfoEnabled()) {
+			tracer.info("[<<] Received HTTP Response. Status Code = " + response.getStatusLine().getStatusCode());
+			if (tracer.isFineEnabled()) {
+				try {
+					tracer.fine("[<<] Received HTTP Response. Response Body = [" + EntityUtils.toString(response.getEntity()) + "]");
+				}
+				catch (Exception e) {
+					tracer.severe("[xx] Failed reading response body", e);
+				}
+			}
 		}
-		catch (Exception e) {
-			tracer.severe("Failed reading response body", e);
-		}
-		tracer.info("*****************************************");
+
+		// end http activity
+		((HttpClientActivity) aci.getActivity()).endActivity();
+
+		// call back parent
+		HashMap params = (HashMap) event.getRequestApplicationData();
+		RatingInfo ratInfo = buildRatingInfo(response, params);
+		final DiameterChargingServer parent = (DiameterChargingServer) sbbContext.getSbbLocalObject().getParent();
+		parent.getRateForServiceResult(ratInfo);
 	}
 
 	//----------------------- HTTP Implementation ------------------------------------//
-	@SuppressWarnings({ "rawtypes" })
-	public RatingInfo getRateForService(HashMap params){
+
+	public RatingInfo getRateForService(HashMap params) {
+		if (sync) {
+			return getRateForServiceSync(params);
+		}
+		else {
+			return getRateForServiceAsync(params);
+		}
+	}
+
+	public RatingInfo getRateForServiceSync(HashMap params) {
 		String sessionIdFromRequest = params.get("SessionId").toString();
+		HttpClient client = raSbbInterface.getHttpClient();
+
+		long bmStart = System.currentTimeMillis();
+		HttpPost httpPost = buildHTTPRequest(params);
+
+		// Synchronous call
+		HttpResponse response = null;
 		try {
-			HttpPost httpPost = new HttpPost(httpURLString);
+			tracer.info("[>>] Sending HTTP Request to Rating Client in synchronous mode.");
+			response = client.execute(httpPost);
+		}
+		catch (IOException e) {
+			tracer.severe("[xx] Failed to send HTTP Request to Rating Engine.");
+			return new RatingInfo(-1, sessionIdFromRequest);
+		}
+		tracer.info("[%%] Response from Rating Engine took " + (System.currentTimeMillis() - bmStart) + " milliseconds.");
 
-			try {
+		return buildRatingInfo(response, params);
+	}
 
-				HttpClient client = raSbbInterface.getHttpClient();
-				HttpClientActivity clientActivity = raSbbInterface.createHttpClientActivity(true, null);
+	public RatingInfo getRateForServiceAsync(HashMap params) {
+		String sessionIdFromRequest = params.get("SessionId").toString();
 
-				ActivityContextInterface clientAci = httpClientAci.getActivityContextInterface(clientActivity);
-				clientAci.attach(sbbContext.getSbbLocalObject());
+		HttpClientActivity clientActivity = null;
+		try {
+			clientActivity = raSbbInterface.createHttpClientActivity(true, null);
+		} catch (StartActivityException e) {
+			tracer.severe("[xx] Failed creating HTTP Client Activity to send HTTP Request to Rating Engine.");
+			return new RatingInfo(-1, sessionIdFromRequest);
+		}
 
-				long bmStart = System.currentTimeMillis();
-				tracer.info("------ HTTP Request Params to Rating Engine ------");
-				String httpRequestParams = "";
-				List<NameValuePair> nameValuePairs = new ArrayList<NameValuePair>(params.size());
+		ActivityContextInterface clientAci = httpClientAci.getActivityContextInterface(clientActivity);
+		clientAci.attach(sbbContext.getSbbLocalObject());
 
-				for (Object o: params.entrySet()) {
-					Map.Entry entry = (Map.Entry) o;
-					String key = null;
-					String val = null;
-					if(entry.getKey() != null){
-						key = entry.getKey().toString();
-					}
-					if(entry.getValue() != null){
-						val = entry.getValue().toString();
-					}
-					if(key==null || val==null){
-						continue;
-					}
-					nameValuePairs.add(new BasicNameValuePair(key, val));
-					httpRequestParams += key+"="+val+"; ";
-				}
-				httpPost.setEntity(new UrlEncodedFormEntity(nameValuePairs));
-				tracer.info(httpRequestParams);
-				//Synchronous
-				HttpResponse response = client.execute(httpPost);
-				tracer.info("------ HTTP Synchronous Response from Rating Engine ------");
-				tracer.info("Response from Rating Engine took " + (System.currentTimeMillis()-bmStart) + " milliseconds.");
-				//tracer.info("URI = " + httpURLString);
-				//tracer.info("Response Headers = " + response.toString());
-				//tracer.info("HTTP Status Code = " + response.getStatusLine().getStatusCode());
-				String responseBody = "";
-				try {
-					responseBody = EntityUtils.toString(response.getEntity());
-				} catch (Exception e) {
-					tracer.severe("Failed reading response body", e);
-				}
-				//tracer.info("Response Body = " + responseBody); 
+		params.put("startTime", System.currentTimeMillis());
+		HttpPost httpPost = buildHTTPRequest(params);
 
-				// The response body is an XML payload. Let's parse it using DOM.
-				int responseCode = -1;
-				String sessionId = sessionIdFromRequest;
-				long actualTime = 0;
-				long currentTime = 0;
-				double rate = 0.0D;
-				String rateDescription = "";
-				String ratePromo = "";
-				try {
-					DocumentBuilder db = DocumentBuilderFactory.newInstance().newDocumentBuilder();
-					InputSource is = new InputSource();
-					is.setCharacterStream(new StringReader(responseBody));
-					Document doc = db.parse(is);
+		// Asynchronous call
+		clientActivity.execute(httpPost, params);
+		tracer.info("[>>] Sent HTTP Request to Rating Client in asynchronous mode.");
 
-					NodeList nodes = doc.getElementsByTagName("response");
-					Element element = (Element) nodes.item(0);
+		return null;
+	}
 
-					responseCode = Integer.parseInt(getCharacterDataFromElement((Element) element.getElementsByTagName("responseCode").item(0)));
-					sessionId = getCharacterDataFromElement((Element) element.getElementsByTagName("sessionId").item(0));
-					if(sessionIdFromRequest != sessionId){
-						tracer.warning("SessionID Mismatch! Something is wrong with the response from the Rating Engine. Expected '"+sessionIdFromRequest+"', received '"+sessionId+"'");
-					}
-					actualTime = Long.parseLong(getCharacterDataFromElement((Element) element.getElementsByTagName("actualTime").item(0)));
-					currentTime = Long.parseLong(getCharacterDataFromElement((Element) element.getElementsByTagName("currentTime").item(0)));
-					rate = Double.parseDouble(getCharacterDataFromElement((Element) element.getElementsByTagName("rate").item(0)));
-					rateDescription = getCharacterDataFromElement((Element) element.getElementsByTagName("rateDescription").item(0));
-					ratePromo = getCharacterDataFromElement((Element) element.getElementsByTagName("ratePromo").item(0));
+	private HttpPost buildHTTPRequest(HashMap params) {
+		HttpPost httpPost = new HttpPost(httpURLString);
 
-					tracer.info(
-							"responseCode="+responseCode+"; "+
+		tracer.info("------ HTTP Request Params to Rating Engine ------");
+		String httpRequestParams = "";
+		List<NameValuePair> nameValuePairs = new ArrayList<NameValuePair>(params.size());
+
+		for (Object o: params.entrySet()) {
+			Map.Entry entry = (Map.Entry) o;
+			String key = null;
+			String val = null;
+			if (entry.getKey() != null) {
+				key = entry.getKey().toString();
+			}
+			if (entry.getValue() != null) {
+				val = entry.getValue().toString();
+			}
+			if (key==null || val==null) {
+				continue;
+			}
+			nameValuePairs.add(new BasicNameValuePair(key, val));
+			httpRequestParams += key + "=" + val + "; ";
+		}
+		try {
+			httpPost.setEntity(new UrlEncodedFormEntity(nameValuePairs));
+		} catch (UnsupportedEncodingException e) {
+			throw new RuntimeException(e);
+		}
+		tracer.info(httpRequestParams);
+
+		return httpPost;
+	}
+
+	private RatingInfo buildRatingInfo(HttpResponse response, HashMap params) {
+		String responseBody = "";
+
+		String diameterSessionId = (String) params.get("SessionId");
+		try {
+			responseBody = EntityUtils.toString(response.getEntity());
+		}
+		catch (Exception e) {
+			tracer.severe("[xx] Failed reading HTTP Rating Engine response body.", e);
+			return new RatingInfo(-1, diameterSessionId);
+		}
+		//tracer.info("Response Body = " + responseBody);
+
+		// The response body is an XML payload. Let's parse it using DOM.
+		int responseCode = -1;
+		String sessionId = diameterSessionId;
+		long actualTime = 0;
+		long currentTime = 0;
+		double rate = 0.0D;
+		String rateDescription = "";
+		String ratePromo = "";
+		try {
+			DocumentBuilder db = DocumentBuilderFactory.newInstance().newDocumentBuilder();
+			InputSource is = new InputSource();
+			is.setCharacterStream(new StringReader(responseBody));
+			Document doc = db.parse(is);
+
+			NodeList nodes = doc.getElementsByTagName("response");
+			Element element = (Element) nodes.item(0);
+
+			responseCode = Integer.parseInt(getCharacterDataFromElement((Element) element.getElementsByTagName("responseCode").item(0)));
+			sessionId = getCharacterDataFromElement((Element) element.getElementsByTagName("sessionId").item(0));
+			if (!diameterSessionId.equals(sessionId)){
+				tracer.warning("SessionID Mismatch! Something is wrong with the response from the Rating Engine. Expected '" + diameterSessionId + "', received '"+sessionId+"'");
+			}
+			actualTime = Long.parseLong(getCharacterDataFromElement((Element) element.getElementsByTagName("actualTime").item(0)));
+			currentTime = Long.parseLong(getCharacterDataFromElement((Element) element.getElementsByTagName("currentTime").item(0)));
+			rate = Double.parseDouble(getCharacterDataFromElement((Element) element.getElementsByTagName("rate").item(0)));
+			rateDescription = getCharacterDataFromElement((Element) element.getElementsByTagName("rateDescription").item(0));
+			ratePromo = getCharacterDataFromElement((Element) element.getElementsByTagName("ratePromo").item(0));
+
+			tracer.info(
+					"responseCode="+responseCode+"; "+
 							"sessionId="+sessionId+"; "+
 							"actualTime="+actualTime+"; "+
 							"currentTime="+currentTime+"; "+
@@ -214,21 +279,13 @@ public abstract class HTTPClientSbb extends BaseSbb implements Sbb, RatingEngine
 							"rateDescription="+rateDescription+"; "+
 							"ratePromo="+ratePromo);
 
-				} catch (Exception e) {
-					tracer.warning("Malformed response from Rating Engine for request:\n"+httpRequestParams+"\n\nResponse Received was:"+responseBody, e);
-				}
-
-				return new RatingInfo(responseCode, sessionId, actualTime, currentTime, rate, rateDescription, ratePromo);
-				//Asynchronous
-				//clientActivity.execute(httpPost, httpURLString);
-
-			} catch (Throwable e) {
-				tracer.severe("Error while creating HttpClientActivity", e);
-			}
-		} catch (Exception e) {
-			tracer.severe("Failed to process HTTP request", e);
 		}
-		return new RatingInfo(-1, sessionIdFromRequest);
+		catch (Exception e) {
+			tracer.warning("[xx] Malformed response from Rating Engine for request:\n" + params + "\n\nResponse Received was:"+responseBody, e);
+			return new RatingInfo(-1, diameterSessionId);
+		}
+
+		return new RatingInfo(responseCode, sessionId, actualTime, currentTime, rate, rateDescription, ratePromo);
 	}
 
 	private String getCharacterDataFromElement(Element e) {

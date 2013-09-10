@@ -23,6 +23,7 @@
 package org.mobicents.charging.server;
 
 import org.mobicents.charging.server.account.CreditControlInfo;
+import org.mobicents.charging.server.ratingengine.RatingInfo;
 
 public interface DiameterChargingServer {
 
@@ -36,5 +37,9 @@ public interface DiameterChargingServer {
 	// Datasource Callbacks -----------------------------------------------------
 
 	public void updateAccountDataResult(boolean success);
+
+	// Rating Engine Callbacks -------------------------------------------------
+
+	public void getRateForServiceResult(RatingInfo ratingInfo);
 
 }

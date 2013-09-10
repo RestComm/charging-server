@@ -1439,6 +1439,11 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb, 
 		return rate;
 	}
 
+	@Override
+	public void getRateForServiceResult(RatingInfo ratingInfo) {
+		tracer.info("[><] Got Rate for Service: " + ratingInfo);
+	}
+
 	// TODO: Ok, so let's not use this for now (the serviceid-units csv mapping file). Why?
 	// According to 3GPP ref, it is not possible to have a decentralized rating engine and centralized unit
 	// determination logic.

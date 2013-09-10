@@ -63,7 +63,7 @@ public abstract class AccountBalanceManagementSbb extends BaseSbb implements Sbb
 
 	private static final String DATASOURCE_CHILD_NAME = "DATASOURCE";
 
-	protected DataSource getDatasource() throws TransactionRequiredLocalException, IllegalArgumentException, NullPointerException, SLEEException, CreateException {
+	protected DataSource getDatasource() throws IllegalArgumentException, NullPointerException, SLEEException, CreateException {
 		ChildRelationExt cre = (ChildRelationExt) getDatasourceChildRelation();
 		SbbLocalObjectExt sbbLocalObject = cre.get(DATASOURCE_CHILD_NAME);
 		if (sbbLocalObject == null) {
