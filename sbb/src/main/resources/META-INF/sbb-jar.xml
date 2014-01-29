@@ -25,14 +25,15 @@
 		</sbb-ref>
 
 		<sbb-ref>
-			<sbb-name>Mobicents Charging Server - Unit Rating and Determination Server HTTP Integration</sbb-name>
+			<!--<sbb-name>Mobicents Charging Server HTTP Rating SBB</sbb-name>-->
+			<sbb-name>Mobicents Charging Server Local Rating SBB</sbb-name>
 			<sbb-vendor>org.mobicents</sbb-vendor>
 			<sbb-version>1.0</sbb-version>
 			<sbb-alias>RatingEngineManagement</sbb-alias>
 		</sbb-ref>
 
 		<sbb-classes>
-			<sbb-abstract-class>
+			<sbb-abstract-class reentrant="True">
 				<sbb-abstract-class-name>org.mobicents.charging.server.DiameterChargingServerSbb</sbb-abstract-class-name>
 				<cmp-field>
 					<cmp-field-name>sessionInfo</cmp-field-name>
@@ -89,6 +90,20 @@
 		</event>
 
 		<env-entry>
+			<description>AVPs to pass to ABMF SBB (via CCInfo object) in format CODE/NAME,CODE/TYPE/NAME,...</description>
+			<env-entry-name>ABMF_AVPs</env-entry-name>
+			<env-entry-type>java.lang.String</env-entry-type>
+			<env-entry-value>9=location, 6=location-backup, 30=apn, 421=data-amount</env-entry-value>
+		</env-entry>
+
+		<env-entry>
+			<description>Perform Rating. If false no rating is performed and give units are used.</description>
+			<env-entry-name>performRating</env-entry-name>
+			<env-entry-type>java.lang.Boolean</env-entry-type>
+			<env-entry-value>true</env-entry-value>
+		</env-entry>
+
+		<env-entry>
 			<description>Load users database from CSV on start up</description>
 			<env-entry-name>loadUsersFromCSV</env-entry-name>
 			<env-entry-type>java.lang.Boolean</env-entry-type>
@@ -139,6 +154,7 @@
 			</sbb-local-interface>
 		</sbb-classes>
 	</sbb>
+
 	<sbb>
 		<description/>
 		<sbb-name>Mobicents Charging Server Datasource SBB</sbb-name>
@@ -184,9 +200,27 @@
 	</sbb>
 
 	<sbb>
-		<description/>
+		<description>Rating Module/SBB for performing rating locally.</description>
 
-		<sbb-name>Mobicents Charging Server - Unit Rating and Determination Server HTTP Integration</sbb-name>
+		<sbb-name>Mobicents Charging Server Local Rating SBB</sbb-name>
+		<sbb-vendor>org.mobicents</sbb-vendor>
+		<sbb-version>1.0</sbb-version>
+
+		<sbb-classes>
+			<sbb-abstract-class>
+				<sbb-abstract-class-name>org.mobicents.charging.server.ratingengine.local.LocalRatingEngineSbb</sbb-abstract-class-name>
+			</sbb-abstract-class>
+			<sbb-local-interface isolate-security-permissions="False">
+				<description>SBB LO which allows integration with Rating Engine.</description>
+				<sbb-local-interface-name>org.mobicents.charging.server.ratingengine.RatingEngineManagementSbbLocalObject</sbb-local-interface-name>
+			</sbb-local-interface>
+		</sbb-classes>
+	</sbb>
+
+	<sbb>
+		<description>Rating Module/SBB for performing rating through HTTP Client.</description>
+
+		<sbb-name>Mobicents Charging Server HTTP Rating SBB</sbb-name>
 		<sbb-vendor>org.mobicents</sbb-vendor>
 		<sbb-version>1.0</sbb-version>
 

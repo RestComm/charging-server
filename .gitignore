@@ -1,6 +1,7 @@
 # Java compiled #
 #################
 *.class
+classes
 
 # Eclipse #
 ###########

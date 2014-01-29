@@ -264,6 +264,11 @@ public abstract class AccountBalanceManagementSbb extends BaseSbb implements Sbb
 		}
 	}
 
+	/**
+	 * Callback method from JDBC
+	 * @param ccInfo
+	 * @param uad
+	 */
 	@Override
 	public void reserveUnitsResult(CreditControlInfo ccInfo, UserAccountData uad) {
 		if (tracer.isInfoEnabled()) {

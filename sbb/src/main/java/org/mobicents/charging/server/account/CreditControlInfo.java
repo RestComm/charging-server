@@ -24,6 +24,7 @@ package org.mobicents.charging.server.account;
 
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.HashMap;
 
 /**
  * Helper class for handling unit reservation
@@ -245,6 +246,21 @@ public class CreditControlInfo implements Serializable {
 
 	public void setCcUnits(ArrayList<CreditControlUnit> ccUnits) {
 		this.ccUnits = ccUnits;
+	}
+
+	// Support for service specific values
+	HashMap<String, Object> serviceInfo = new HashMap<String, Object>();
+
+	public Object addServiceInfo(String name, Object value) {
+		return serviceInfo.put(name, value);
+	}
+
+	public Object removeServiceInfo(String name) {
+		return serviceInfo.remove(name);
+	}
+
+	public Object getServiceInfo(String name) {
+		return serviceInfo.get(name);
 	}
 
 	@Override
