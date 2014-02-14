@@ -132,6 +132,14 @@ public abstract class DataSourceSbb extends BaseSbb implements Sbb, DataSource {
 	}
 
 	@Override
+	public void directDebitUnits(CreditControlInfo ccInfo) {
+		if (tracer.isInfoEnabled()) {
+			tracer.info("[><] Debiting Units: " + ccInfo);
+		}
+		executeTask(new DirectDebitUnitsJdbcTask(ccInfo, tracer));
+	}
+
+	@Override
 	public void updateUser(String msisdn, long balance) {
 		if (tracer.isInfoEnabled()) {
 			tracer.info("[><] Updating User with MSISDN '" + msisdn + "'. Balance = " + balance);
@@ -144,7 +152,7 @@ public abstract class DataSourceSbb extends BaseSbb implements Sbb, DataSource {
 	/**
 	 * Simple method to create JDBC activity and execute given task.
 	 * 
-	 * @param queryJDBCTask
+	 * @param jdbcTask
 	 */
 	private void executeTask(SimpleJdbcTask jdbcTask) {
 		JdbcActivity jdbcActivity = jdbcRA.createActivity();

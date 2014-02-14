@@ -34,6 +34,7 @@ import javax.slee.TransactionRequiredLocalException;
 import javax.slee.facilities.Tracer;
 
 
+import net.java.slee.resource.diameter.cca.events.avp.RequestedActionType;
 import org.mobicents.charging.server.BaseSbb;
 import org.mobicents.charging.server.DiameterChargingServer;
 import org.mobicents.charging.server.data.DataSource;
@@ -195,14 +196,20 @@ public abstract class AccountBalanceManagementSbb extends BaseSbb implements Sbb
 			ccInfo.setSuccess(true);
 			((DiameterChargingServer)sbbContext.getSbbLocalObject().getParent()).resumeOnCreditControlRequest(ccInfo);
 		}
-
-		DataSource ds = null;
-		try {
-			ds = getDatasource();
-			ds.requestUnits(ccInfo);
-		}
-		catch (Exception e) {
-			tracer.severe("[xx] Unable to obtain Datasource Child SBB", e);
+		else {
+			DataSource ds = null;
+			try {
+				ds = getDatasource();
+				if (ccInfo.getRequestedAction() == RequestedActionType.DIRECT_DEBITING) {
+					ds.directDebitUnits(ccInfo);
+				}
+				else {
+					ds.requestUnits(ccInfo);
+				}
+			}
+			catch (Exception e) {
+				tracer.severe("[xx] Unable to obtain Datasource Child SBB", e);
+			}
 		}
 	}
 
@@ -218,15 +225,15 @@ public abstract class AccountBalanceManagementSbb extends BaseSbb implements Sbb
 				//ccIA.setEventTimestamp(System.currentTimeMillis());
 				//ccIA.setSubscriptionId(ccInfo.getSubscriptionId());
 				if (data.getMsisdn() == null) {
-					ccIA.setErrorCode(404L);
+					ccIA.setErrorCode(CreditControlInfo.ErrorCodeType.InvalidUser.ordinal());
 					ccIA.setErrorMessage("Invalid User");
 				}
 				else if (ccInfo.getCcUnits().get(0).getRequestedUnits() > 0) {
-					ccIA.setErrorCode(503L);
+					ccIA.setErrorCode(CreditControlInfo.ErrorCodeType.NotEnoughBalance.ordinal());
 					ccIA.setErrorMessage("No Units Available");
 				}
 				else{
-					ccIA.setErrorCode(503L);
+					ccIA.setErrorCode(CreditControlInfo.ErrorCodeType.General.ordinal());
 					ccIA.setErrorMessage("Other Error");
 					// TODO: Expand response code list. Determine what else could cause number of rows updated to be <> 1 and return appropriate response.
 				}

@@ -46,15 +46,18 @@ public class LocalRatingEngineSbb extends BaseSbb implements Sbb, RatingEngineCl
 	public void setSbbContext(SbbContext context) {
 
 		this.sbbContext = (SbbContextExt) context;
-		this.tracer = sbbContext.getTracer("CS-RF-FREE");
+		this.tracer = sbbContext.getTracer("CS-RF-SMPL");
 	}
 	@Override
 	public RatingInfo getRateForService(HashMap params) {
 		String sessionId = (String) params.get("SessionId");
 		if (tracer.isInfoEnabled()) {
-			tracer.info("[$$] SID<" + sessionId + "> Performing rating with the FREE Rating Module.");
+			tracer.info("[$$] SID<" + sessionId + "> Performing rating with the SIMPLE Rating Module.");
 		}
-		return new RatingInfo(0, sessionId);
+		RatingInfo ri = new RatingInfo(0, sessionId);
+		ri.setRate(1.0);
+
+		return ri;
 	}
 
 }

@@ -22,6 +22,8 @@
 
 package org.mobicents.charging.server.account;
 
+import net.java.slee.resource.diameter.cca.events.avp.RequestedActionType;
+
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -122,8 +124,9 @@ public class CreditControlInfo implements Serializable {
 	private String sessionId = "";
 	
 	private int requestNumber;
-	
-	// Subscription-Id Type and Data 
+	private RequestedActionType requestedAction;
+
+	// Subscription-Id Type and Data
 	private net.java.slee.resource.diameter.cca.events.avp.SubscriptionIdType subscriptionIdType;
 	private String subscriptionId = "";
 
@@ -165,6 +168,14 @@ public class CreditControlInfo implements Serializable {
 
 	public void setRequestNumber(int requestNumber) {
 		this.requestNumber = requestNumber;
+	}
+
+	public RequestedActionType getRequestedAction() {
+		return requestedAction;
+	}
+
+	public void setRequestedAction(RequestedActionType requestedAction) {
+		this.requestedAction = requestedAction;
 	}
 
 	public net.java.slee.resource.diameter.cca.events.avp.SubscriptionIdType getSubscriptionIdType() {

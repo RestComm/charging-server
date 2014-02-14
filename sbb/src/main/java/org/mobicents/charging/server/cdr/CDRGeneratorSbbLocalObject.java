@@ -1,6 +1,6 @@
 /*
  * TeleStax, Open Source Cloud Communications
- * Copyright 2013, TeleStax and individual contributors as indicated
+ * Copyright 2014, TeleStax and individual contributors as indicated
  * by the @authors tag. See the copyright.txt in the distribution for
  * a full listing of individual contributors.
  *
@@ -20,50 +20,15 @@
  * 02110-1301 USA, or see the FSF site: http://www.fsf.org.
  */
 
-package org.mobicents.charging.server.data;
+package org.mobicents.charging.server.cdr;
 
-import org.mobicents.charging.server.account.CreditControlInfo;
+import org.mobicents.slee.SbbLocalObjectExt;
 
 /**
- * Interface with operations to interact with datasource.
- * 
+ * Call Detail Record (CDR) Generator SBB Local Object interface
+ *
  * @author ammendonca
- * @author rsaranathan
  */
-public interface DataSource {
-
-	/**
-	 * Initiates the data source
-	 */
-	public void init();
-
-	/**
-	 * Gets the user account data from the database, by msisdn
-	 * 
-	 * @param msisdn
-	 */
-	public void getUserAccountData(String msisdn);
-
-	/**
-	 * Places a new initial/update/terminate request for a user.
-	 *
-	 * @param ccInfo
-	 */
-	public void requestUnits(CreditControlInfo ccInfo);
-
-	/**
-	 * Places a new event/direct-debit request for a user.
-	 *
-	 * @param ccInfo
-	 */
-	public void directDebitUnits(CreditControlInfo ccInfo);
-
-	/**
-	 * Update user with specific msisdn. Overwrites balance.
-	 * 
-	 * @param msisdn
-	 * @param balance
-	 */
-	public void updateUser(String msisdn, long balance);
+public interface CDRGeneratorSbbLocalObject extends SbbLocalObjectExt, CDRGenerator {
 
 }

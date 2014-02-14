@@ -87,7 +87,13 @@ public class DataSourceSchemaInfo {
 			" SET " + _COL_BALANCE + " = " + _COL_BALANCE + " + ? - ?, " +
 			_COL_RESERVED + " = " + " ? "+
 			"WHERE " + _COL_MSISDN + " = ?";
-	
+
+	public static final String _QUERY_DEBIT =
+			"UPDATE " + _TBL_USERS +
+					//                                          B = B - R
+					" SET " + _COL_BALANCE + " = " + _COL_BALANCE + " - ? " +
+					" WHERE " + _COL_MSISDN + " = ?";
+
 	public static void main(String[] args) {
 		System.out.println("Create Query: "+_QUERY_CREATE);
 		System.out.println("Reserve Query: "+_QUERY_RESERVE);

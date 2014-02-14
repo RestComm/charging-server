@@ -23,11 +23,9 @@
 package org.mobicents.charging.server;
 
 import java.io.IOException;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -63,6 +61,7 @@ import net.java.slee.resource.diameter.cca.events.avp.FinalUnitActionType;
 import net.java.slee.resource.diameter.cca.events.avp.FinalUnitIndicationAvp;
 import net.java.slee.resource.diameter.cca.events.avp.GrantedServiceUnitAvp;
 import net.java.slee.resource.diameter.cca.events.avp.MultipleServicesCreditControlAvp;
+import net.java.slee.resource.diameter.cca.events.avp.RequestedActionType;
 import net.java.slee.resource.diameter.cca.events.avp.RequestedServiceUnitAvp;
 import net.java.slee.resource.diameter.cca.events.avp.SubscriptionIdAvp;
 import net.java.slee.resource.diameter.cca.events.avp.SubscriptionIdType;
@@ -77,6 +76,7 @@ import org.mobicents.charging.server.account.AccountBalanceManagement;
 import org.mobicents.charging.server.account.CreditControlInfo;
 import org.mobicents.charging.server.account.CreditControlInfo.ErrorCodeType;
 import org.mobicents.charging.server.account.CreditControlUnit;
+import org.mobicents.charging.server.cdr.CDRGenerator;
 import org.mobicents.charging.server.ratingengine.RatingEngineClient;
 import org.mobicents.charging.server.ratingengine.RatingInfo;
 import org.mobicents.charging.server.data.DataSource;
@@ -113,6 +113,10 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb, 
 	private RoAvpFactory avpFactory;
 	//private RoActivityContextInterfaceFactory roAcif;
 	private RoProvider roProvider;
+
+	private AccountBalanceManagement accountBalanceManagement = null;
+	private RatingEngineClient ratingEngineManagement = null;
+	private CDRGenerator cdrGenerator = null;
 
 	/*
 	 * Centralized Unit Determination. Please note that 3GPP standards are only
@@ -159,6 +163,8 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb, 
 	public abstract ChildRelation getDatasourceChildRelation();
 
 	public abstract ChildRelation getRatingEngineChildRelation();
+
+	public abstract ChildRelation getCDRGeneratorChildRelation();
 
 	// --------------------------------- IES ----------------------------------
 	public InitialEventSelector onCreditControlRequestInitialEventSelect(InitialEventSelector ies) {
@@ -208,6 +214,17 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb, 
 		return (RatingEngineClient) sbbLocalObject;
 	}
 
+	private static final String CDRGEN_CHILD_NAME = "CDR_GENERATOR";
+	protected CDRGenerator getCDRGenerator() throws TransactionRequiredLocalException, IllegalArgumentException, NullPointerException, SLEEException, CreateException {
+		ChildRelationExt cre = (ChildRelationExt) getCDRGeneratorChildRelation();
+		SbbLocalObjectExt sbbLocalObject = cre.get(CDRGEN_CHILD_NAME);
+		if (sbbLocalObject == null) {
+			sbbLocalObject = cre.create(CDRGEN_CHILD_NAME);
+		}
+
+		return (CDRGenerator) sbbLocalObject;
+	}
+
 	/**
 	 * @param errorCodeType
 	 * @return
@@ -227,7 +244,8 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb, 
 		case MalformedRequest:
 		case AccountingConnectionErr:
 		default:
-			return DiameterResultCode.DIAMETER_UNABLE_TO_DELIVER;
+			// TODO: Improve with more specific codes
+			return DiameterResultCode.DIAMETER_UNABLE_TO_COMPLY;
 		}
 	}
 
@@ -402,8 +420,18 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb, 
 			return;
 		}
 
-		AccountBalanceManagement accountBalanceManagement = null;
-		RatingEngineClient ratingEngineManagement = null;
+		// Retrieve child SBBs
+		try {
+			accountBalanceManagement = getAccountManager();
+			ratingEngineManagement = getRatingEngineManager();
+			cdrGenerator = getCDRGenerator();
+		}
+		catch (Exception e) {
+			// TODO: By configuration it should be possible to proceed
+			tracer.severe("[xx] Unable to retrieve Account & Balance Management or Rating Child SBB. Unable to continue.", e);
+			cca = createCCA(ccServerActivity, ccr, new ArrayList<CreditControlInfo>(), DiameterResultCode.DIAMETER_UNABLE_TO_COMPLY);
+			sendCCA(cca, aci, true);
+		}
 
 		switch (ccr.getCcRequestType()) {
 		// INITIAL_REQUEST 1
@@ -415,31 +443,23 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb, 
 			// timerFacility.setTimer(aci, null, System.currentTimeMillis() + 15000, DEFAULT_TIMER_OPTIONS);
 
 			try {
-				accountBalanceManagement = getAccountManager();
-
 				// retrieve service information from AVPs
 				serviceContextId = ccr.getServiceContextId();
 				if (serviceContextId == null) {
 					tracer.severe("[xx] SID<" + sessionId + "> Service-Context-Id AVP missing in CCR. Rejecting CCR.");
 					// TODO: include missing avp - its a "SHOULD"
-					createCCA(ccServerActivity, ccr, null, DiameterResultCode.DIAMETER_MISSING_AVP);
+					cca = createCCA(ccServerActivity, ccr, null, DiameterResultCode.DIAMETER_MISSING_AVP);
+					sendCCA(cca, aci, true);
 				}
 				else {
 					if (serviceContextId.equals("")) {
 						tracer.severe("[xx] SID<" + sessionId + "> Service-Context-Id AVP is empty in CCR. Rejecting CCR.");
-						createCCA(ccServerActivity, ccr, null, DiameterResultCode.DIAMETER_INVALID_AVP_VALUE);
+						cca = createCCA(ccServerActivity, ccr, null, DiameterResultCode.DIAMETER_INVALID_AVP_VALUE);
+						sendCCA(cca, aci, true);
 					}
 				}
 
 				// TODO: For Ro, support Service-Information AVP
-
-				try {
-					ratingEngineManagement = getRatingEngineManager();
-				}
-				catch (Exception e) {
-					tracer.severe("[xx] Unable to fetch Rating Engine Management Child SBB.", e);
-					return;
-				}
 
 				List<CreditControlInfo> reservations = new ArrayList<CreditControlInfo>();
 				long resultCode = DiameterResultCode.DIAMETER_SUCCESS;
@@ -453,105 +473,9 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb, 
 					long[] serviceIds = mscc.getServiceIdentifiers();
 
 					RequestedServiceUnitAvp rsu = mscc.getRequestedServiceUnit();
-					ArrayList<CreditControlUnit> ccRequestedUnits = new ArrayList<CreditControlUnit>();
-
-					long requestedUnits = 0;
-					// Input Octets
-					requestedUnits = rsu.getCreditControlInputOctets();
-					if (requestedUnits > 0) {
-						CreditControlUnit ccUnit = new CreditControlUnit();
-						ccUnit.setUnitType(CcUnitType.INPUT_OCTETS);
-						if (performRating) {
-							double rateForService = getRateForService(ccr, ratingEngineManagement, serviceIds[0], CcUnitType.INPUT_OCTETS.getValue(), requestedUnits);
-							ccUnit.setRateForService(rateForService);
-							// FIXME: This is not right. Rating should convert to monetary units...
-							ccUnit.setRequestedAmount((long) Math.ceil(requestedUnits * rateForService));
-						}
-						ccUnit.setRequestedUnits(requestedUnits);
-						ccRequestedUnits.add(ccUnit);
-					}
-					// Money 
-					CcMoneyAvp moneyUnitsTmp = rsu.getCreditControlMoneyAvp();
-					if (moneyUnitsTmp != null) {
-						requestedUnits = moneyUnitsTmp.getUnitValue().getValueDigits();
-						if (requestedUnits > 0) {
-							CreditControlUnit ccUnit = new CreditControlUnit();
-							ccUnit.setUnitType(CcUnitType.MONEY);
-							if (performRating) {
-								double rateForService = getRateForService(ccr, ratingEngineManagement, serviceIds[0],CcUnitType.MONEY.getValue(), requestedUnits);
-								ccUnit.setRateForService(rateForService);
-								// FIXME: This is not right. Rating should convert to monetary units...
-								ccUnit.setRequestedAmount((long) Math.ceil(requestedUnits * rateForService));
-							}
-							ccUnit.setRequestedUnits(requestedUnits);
-							ccUnit.setCcMoney(rsu.getCreditControlMoneyAvp());
-							ccRequestedUnits.add(ccUnit);
-						}
-					}
-					// Output Octets 
-					requestedUnits = rsu.getCreditControlOutputOctets();
-					if (requestedUnits > 0) {
-						CreditControlUnit ccUnit = new CreditControlUnit();
-						ccUnit.setUnitType(CcUnitType.OUTPUT_OCTETS);
-						if (performRating) {
-							double rateForService = getRateForService(ccr, ratingEngineManagement, serviceIds[0], CcUnitType.OUTPUT_OCTETS.getValue(), requestedUnits);
-							ccUnit.setRateForService(rateForService);
-							// FIXME: This is not right. Rating should convert to monetary units...
-							ccUnit.setRequestedAmount((long) Math.ceil(requestedUnits * rateForService));
-						}
-						ccUnit.setRequestedUnits(requestedUnits);
-						ccRequestedUnits.add(ccUnit);
-					}
-					// Service Specific Units
-					requestedUnits = rsu.getCreditControlServiceSpecificUnits();
-					if (requestedUnits > 0) {
-						CreditControlUnit ccUnit = new CreditControlUnit();
-						ccUnit.setUnitType(CcUnitType.SERVICE_SPECIFIC_UNITS);
-						if (performRating) {
-							double rateForService = getRateForService(ccr, ratingEngineManagement, serviceIds[0], CcUnitType.SERVICE_SPECIFIC_UNITS.getValue(), requestedUnits);
-							ccUnit.setRateForService(rateForService);
-							// FIXME: This is not right. Rating should convert to monetary units...
-							ccUnit.setRequestedAmount((long) Math.ceil(requestedUnits * rateForService));
-						}
-						ccUnit.setRequestedUnits(requestedUnits);
-						ccRequestedUnits.add(ccUnit);
-					}
-					// Time 
-					requestedUnits = rsu.getCreditControlTime();
-					if (requestedUnits > 0) {
-						CreditControlUnit ccUnit = new CreditControlUnit();
-						ccUnit.setUnitType(CcUnitType.TIME);
-						if (performRating) {
-							double rateForService = getRateForService(ccr, ratingEngineManagement, serviceIds[0], CcUnitType.TIME.getValue(), requestedUnits);
-							ccUnit.setRateForService(rateForService);
-							// FIXME: This is not right. Rating should convert to monetary units...
-							ccUnit.setRequestedAmount((long) Math.ceil(requestedUnits * rateForService));
-						}
-						ccUnit.setRequestedUnits(requestedUnits);
-						ccRequestedUnits.add(ccUnit);
-					}
-					// Total Octets
-					requestedUnits = rsu.getCreditControlTotalOctets();
-					if (requestedUnits > 0) {
-						CreditControlUnit ccUnit = new CreditControlUnit();
-						ccUnit.setUnitType(CcUnitType.TOTAL_OCTETS);
-						if (performRating) {
-							double rateForService = getRateForService(ccr, ratingEngineManagement, serviceIds[0], CcUnitType.TOTAL_OCTETS.getValue(), requestedUnits);
-							ccUnit.setRateForService(rateForService);
-							// FIXME: This is not right. Rating should convert to monetary units...
-							ccUnit.setRequestedAmount((long) Math.ceil(requestedUnits * rateForService));
-						}
-						ccUnit.setRequestedUnits(requestedUnits);
-						ccRequestedUnits.add(ccUnit);
-					}
+					ArrayList<CreditControlUnit> ccRequestedUnits = getRequestedUnits(ccr, rsu, serviceIds);
 
 					// if its UPDATE, lets first update data
-					long usedUnitsInputCount = 0;
-					long usedUnitsMoneyCount = 0;
-					long usedUnitsOutputCount = 0;
-					long usedUnitsServiceSpecificCount = 0;
-					long usedUnitsTimeCount = 0;
-					long usedUnitsTotalCount = 0;
 					if (ccr.getCcRequestType() == CcRequestType.UPDATE_REQUEST) {
 						// update used units for each CC-Type.
 						UsedServiceUnitAvp[] usedUnits = mscc.getUsedServiceUnits();
@@ -560,117 +484,7 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb, 
 						CreditControlInfo reservedInfo = sessionInfo.getReservations().get(sessionInfo.getReservations().size()-1);
 						ArrayList<CreditControlUnit> reservedCCUnits = reservedInfo.getCcUnits();
 
-						for (UsedServiceUnitAvp usedUnit : usedUnits) {
-							if (usedUnit.getCreditControlInputOctets() > 0) {
-								usedUnitsInputCount += usedUnit.getCreditControlInputOctets();
-								for (int i = 0; i < ccRequestedUnits.size(); i++) {
-									CreditControlUnit ccUnit = ccRequestedUnits.get(i);
-									if (ccUnit.getUnitType() == CcUnitType.INPUT_OCTETS) {
-										ccUnit.setUsedUnits(usedUnitsInputCount);
-									}
-									for (int j = 0; j < reservedCCUnits.size(); j++) {
-										CreditControlUnit reservedCCUnit = reservedCCUnits.get(j);
-										if (reservedCCUnit.getUnitType() == CcUnitType.INPUT_OCTETS) {
-											// Copy the reserved amount from the last session into this session so that ABMF can update used units.
-											ccUnit.setReservedUnits(reservedCCUnit.getReservedUnits());
-											ccUnit.setReservedAmount(reservedCCUnit.getReservedAmount());
-											ccUnit.setUsedAmount((long)Math.ceil(reservedCCUnit.getRateForService() * ccUnit.getUsedUnits()));
-										}
-									}
-								}
-							}
-							moneyUnitsTmp = usedUnit.getCreditControlMoneyAvp();
-							if (moneyUnitsTmp != null && moneyUnitsTmp.getUnitValue().getValueDigits() > 0) {
-								usedUnitsMoneyCount += moneyUnitsTmp.getUnitValue().getValueDigits();
-								for (int i = 0; i < ccRequestedUnits.size(); i++) {
-									CreditControlUnit ccUnit = ccRequestedUnits.get(i);
-									if (ccUnit.getUnitType() == CcUnitType.MONEY) {
-										ccUnit.setUsedUnits(usedUnitsMoneyCount);
-									}
-									for (int j = 0; j < reservedCCUnits.size(); j++) {
-										CreditControlUnit reservedCCUnit = reservedCCUnits.get(j);
-										if (reservedCCUnit.getUnitType() == CcUnitType.MONEY) {
-											// Copy the reserved amount from the last session into this session so that ABMF can update used units.
-											ccUnit.setReservedUnits(reservedCCUnit.getReservedUnits());
-											ccUnit.setReservedAmount(reservedCCUnit.getReservedAmount());
-											ccUnit.setUsedAmount((long)Math.ceil(reservedCCUnit.getRateForService() * ccUnit.getUsedUnits()));
-										}
-									}
-								}
-							}
-							if (usedUnit.getCreditControlOutputOctets() > 0) {
-								usedUnitsOutputCount += usedUnit.getCreditControlOutputOctets();
-								for (int i = 0; i < ccRequestedUnits.size(); i++) {
-									CreditControlUnit ccUnit = ccRequestedUnits.get(i);
-									if (ccUnit.getUnitType() == CcUnitType.OUTPUT_OCTETS) {
-										ccUnit.setUsedUnits(usedUnitsOutputCount);
-									}
-									for (int j = 0; j < reservedCCUnits.size(); j++) {
-										CreditControlUnit reservedCCUnit = reservedCCUnits.get(j);
-										if (reservedCCUnit.getUnitType() == CcUnitType.OUTPUT_OCTETS){
-											// Copy the reserved amount from the last session into this session so that ABMF can update used units.
-											ccUnit.setReservedUnits(reservedCCUnit.getReservedUnits());
-											ccUnit.setReservedAmount(reservedCCUnit.getReservedAmount());
-											ccUnit.setUsedAmount((long)Math.ceil(reservedCCUnit.getRateForService() * ccUnit.getUsedUnits()));
-										}
-									}
-								}
-							}
-							if (usedUnit.getCreditControlServiceSpecificUnits() > 0) {
-								usedUnitsServiceSpecificCount += usedUnit.getCreditControlServiceSpecificUnits();
-								for (int i = 0; i < ccRequestedUnits.size(); i++) {
-									CreditControlUnit ccUnit = ccRequestedUnits.get(i);
-									if (ccUnit.getUnitType() == CcUnitType.SERVICE_SPECIFIC_UNITS) {
-										ccUnit.setUsedUnits(usedUnitsServiceSpecificCount);
-									}
-									for (int j = 0; j < reservedCCUnits.size(); j++) {
-										CreditControlUnit reservedCCUnit = reservedCCUnits.get(j);
-										if (reservedCCUnit.getUnitType() == CcUnitType.SERVICE_SPECIFIC_UNITS) {
-											// Copy the reserved amount from the last session into this session so that ABMF can update used units.
-											ccUnit.setReservedUnits(reservedCCUnit.getReservedUnits());
-											ccUnit.setReservedAmount(reservedCCUnit.getReservedAmount());
-											ccUnit.setUsedAmount((long)Math.ceil(reservedCCUnit.getRateForService() * ccUnit.getUsedUnits()));
-										}
-									}
-								}
-							}
-							if (usedUnit.getCreditControlTime() > 0) {
-								usedUnitsTimeCount += usedUnit.getCreditControlTime();
-								for (int i = 0; i < ccRequestedUnits.size(); i++) {
-									CreditControlUnit ccUnit = ccRequestedUnits.get(i);
-									if (ccUnit.getUnitType() == CcUnitType.TIME) {
-										ccUnit.setUsedUnits(usedUnitsTimeCount);
-									}
-									for (int j = 0; j < reservedCCUnits.size(); j++) {
-										CreditControlUnit reservedCCUnit = reservedCCUnits.get(j);
-										if (reservedCCUnit.getUnitType() == CcUnitType.TIME) {
-											// Copy the reserved amount from the last session into this session so that ABMF can update used units.
-											ccUnit.setReservedUnits(reservedCCUnit.getReservedUnits());
-											ccUnit.setReservedAmount(reservedCCUnit.getReservedAmount());
-											ccUnit.setUsedAmount((long)Math.ceil(reservedCCUnit.getRateForService() * ccUnit.getUsedUnits()));
-										}
-									}
-								}
-							}
-							if (usedUnit.getCreditControlTotalOctets() > 0) {
-								usedUnitsTotalCount += usedUnit.getCreditControlTotalOctets();
-								for (int i = 0; i < ccRequestedUnits.size(); i++) {
-									CreditControlUnit ccUnit = ccRequestedUnits.get(i);
-									if (ccUnit.getUnitType() == CcUnitType.TOTAL_OCTETS) {
-										ccUnit.setUsedUnits(usedUnitsTotalCount);
-									}
-									for (int j = 0; j < reservedCCUnits.size(); j++) {
-										CreditControlUnit reservedCCUnit = reservedCCUnits.get(j);
-										if (reservedCCUnit.getUnitType() == CcUnitType.TOTAL_OCTETS) {
-											// Copy the reserved amount from the last session into this session so that ABMF can update used units.
-											ccUnit.setReservedUnits(reservedCCUnit.getReservedUnits());
-											ccUnit.setReservedAmount(reservedCCUnit.getReservedAmount());
-											ccUnit.setUsedAmount((long)Math.ceil(reservedCCUnit.getRateForService() * ccUnit.getUsedUnits()));
-										}
-									}
-								}
-							}
-						}
+						collectUsedUnits(usedUnits, ccRequestedUnits, reservedCCUnits);
 
 						// Build Credit Control Info Request to ABMF
 						CreditControlInfo ccInfo = new CreditControlInfo();
@@ -734,7 +548,7 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb, 
 				else {
 					cca = createCCA(ccServerActivity, ccr, null, DiameterResultCode.DIAMETER_MISSING_AVP);
 				}
-				ccServerActivity.sendRoCreditControlAnswer(cca);
+				sendCCA(cca, aci, false);
 			}
 			catch (Exception e) {
 				tracer.severe("[xx] SID<" + ccr.getSessionId() + "> Failure processing Credit-Control-Request [" + (ccr.getCcRequestType() == CcRequestType.INITIAL_REQUEST ? "INITIAL" : "UPDATE") + "]", e);
@@ -746,8 +560,6 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb, 
 				if (tracer.isInfoEnabled()) {
 					tracer.info("[>>] SID<" + ccr.getSessionId() + "> '" + endUserId + "' requested service termination for '" + serviceContextId + "'.");
 				}
-				accountBalanceManagement = getAccountManager();
-				ratingEngineManagement = getRatingEngineManager();
 
 				for (MultipleServicesCreditControlAvp mscc : ccr.getMultipleServicesCreditControls()) {
 
@@ -949,7 +761,7 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb, 
 				// Answer with DIAMETER_SUCCESS, since "4) The default action for failed operations should be to terminate the data session"
 				// its terminated, we cant do much here...
 				cca = createCCA(ccServerActivity, ccr, null, DiameterResultCode.DIAMETER_SUCCESS);
-				ccServerActivity.sendRoCreditControlAnswer(cca);
+				sendCCA(cca, aci, true);
 			}
 			catch (Exception e) {
 				tracer.severe("[xx] SID<" + ccr.getSessionId() + "> Failure processing Credit-Control-Request [TERMINATION]", e);
@@ -958,121 +770,61 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb, 
 			// EVENT_REQUEST 4
 		case EVENT_REQUEST:
 			try {
+				RequestedActionType reqAction = ccr.getRequestedAction();
 				if (tracer.isInfoEnabled()) {
-					tracer.info("[<<] SID<" + ccr.getSessionId() + "> Received Credit-Control-Request [EVENT]");
+					tracer.info("[<<] SID<" + ccr.getSessionId() + "> Received Credit-Control-Request [EVENT] with Requested-Action [" + reqAction + "]");
 
 					if (tracer.isFineEnabled()) {
 						tracer.fine(ccr.toString());
 					}
 				}
-				accountBalanceManagement = getAccountManager();
-				ratingEngineManagement = getRatingEngineManager();
-				for (MultipleServicesCreditControlAvp mscc : ccr.getMultipleServicesCreditControls()) {
-					RequestedServiceUnitAvp rsu = mscc.getRequestedServiceUnit();
-					ArrayList<CreditControlUnit> ccUnits = new ArrayList<CreditControlUnit>();
-					
-					long[] serviceIds = mscc.getServiceIdentifiers();
 
-					long requestedUnits = 0;
-					// Input Octets
-					requestedUnits = rsu.getCreditControlInputOctets();
-					if (requestedUnits > 0) {
-						CreditControlUnit ccUnit = new CreditControlUnit();
-						ccUnit.setUnitType(CcUnitType.INPUT_OCTETS);
-						double rateForService = getRateForService(ccr, ratingEngineManagement, serviceIds[0], CcUnitType.INPUT_OCTETS.getValue(), requestedUnits);
-						ccUnit.setRateForService(rateForService);
-						ccUnit.setRequestedUnits(requestedUnits);
-						ccUnit.setRequestedAmount((long)Math.ceil(requestedUnits * rateForService));
-						ccUnits.add(ccUnit);
-					}
-					// Money 
-					CcMoneyAvp moneyUnitsTmp = rsu.getCreditControlMoneyAvp();
-					if (moneyUnitsTmp != null) {
-						requestedUnits = moneyUnitsTmp.getUnitValue().getValueDigits();
-						if (requestedUnits > 0) {
-							CreditControlUnit ccUnit = new CreditControlUnit();
-							ccUnit.setUnitType(CcUnitType.MONEY);
-							double rateForService = getRateForService(ccr, ratingEngineManagement, serviceIds[0],CcUnitType.MONEY.getValue(), requestedUnits);
-							ccUnit.setRateForService(rateForService);
-							ccUnit.setRequestedUnits(requestedUnits);
-							ccUnit.setRequestedAmount((long)Math.ceil(requestedUnits * rateForService));
-							ccUnit.setCcMoney(rsu.getCreditControlMoneyAvp());
-							ccUnits.add(ccUnit);
-						}
-					}
-					// Output Octets 
-					requestedUnits = rsu.getCreditControlOutputOctets();
-					if (requestedUnits > 0) {
-						CreditControlUnit ccUnit = new CreditControlUnit();
-						ccUnit.setUnitType(CcUnitType.OUTPUT_OCTETS);
-						double rateForService = getRateForService(ccr, ratingEngineManagement, serviceIds[0], CcUnitType.OUTPUT_OCTETS.getValue(), requestedUnits);
-						ccUnit.setRateForService(rateForService);
-						ccUnit.setRequestedUnits(requestedUnits);
-						ccUnit.setRequestedAmount((long)Math.ceil(requestedUnits * rateForService));
-						ccUnits.add(ccUnit);
-					}
-					// Service Specific Units
-					requestedUnits = rsu.getCreditControlServiceSpecificUnits();
-					if (requestedUnits > 0) {
-						CreditControlUnit ccUnit = new CreditControlUnit();
-						ccUnit.setUnitType(CcUnitType.SERVICE_SPECIFIC_UNITS);
-						double rateForService = getRateForService(ccr, ratingEngineManagement, serviceIds[0], CcUnitType.SERVICE_SPECIFIC_UNITS.getValue(), requestedUnits);
-						ccUnit.setRateForService(rateForService);
-						ccUnit.setRequestedUnits(requestedUnits);
-						ccUnit.setRequestedAmount((long)Math.ceil(requestedUnits * rateForService));
-						ccUnits.add(ccUnit);
-					}
-					// Time 
-					requestedUnits = rsu.getCreditControlTime();
-					if (requestedUnits > 0) {
-						CreditControlUnit ccUnit = new CreditControlUnit();
-						ccUnit.setUnitType(CcUnitType.TIME);
-						double rateForService = getRateForService(ccr, ratingEngineManagement, serviceIds[0], CcUnitType.TIME.getValue(), requestedUnits);
-						ccUnit.setRateForService(rateForService);
-						ccUnit.setRequestedUnits(requestedUnits);
-						ccUnit.setRequestedAmount((long)Math.ceil(requestedUnits * rateForService));
-						ccUnits.add(ccUnit);
-					}
-					// Total Octets
-					requestedUnits = rsu.getCreditControlTotalOctets();
-					if (requestedUnits > 0) {
-						CreditControlUnit ccUnit = new CreditControlUnit();
-						ccUnit.setUnitType(CcUnitType.TOTAL_OCTETS);
-						double rateForService = getRateForService(ccr, ratingEngineManagement, serviceIds[0], CcUnitType.TOTAL_OCTETS.getValue(), requestedUnits);
-						ccUnit.setRateForService(rateForService);
-						ccUnit.setRequestedUnits(requestedUnits);
-						ccUnit.setRequestedAmount((long)Math.ceil(requestedUnits * rateForService));
-						ccUnits.add(ccUnit);
-					}
-
-					// Build Credit Control Info Request to ABMF
-					CreditControlInfo ccInfo = new CreditControlInfo();
-					ccInfo.setEventTimestamp(System.currentTimeMillis());
-					ccInfo.setEventType(ccr.getCcRequestType().toString());
-					ccInfo.setCcUnits(ccUnits);
-					ccInfo.setRequestNumber((int) ccr.getCcRequestNumber());
-					ccInfo.setSessionId(sessionId);
-					ccInfo.setSubscriptionId(endUserId);
-					ccInfo.setSubscriptionIdType(endUserType);
-
-					// Call ABMF with this Credit Control Info 
-					accountBalanceManagement.eventRequest(ccInfo);
-
-					// Store Credit Control Info in CMP
-					sessionInfo = getSessionInfo();
-					sessionInfo.setCcr(ccr);
-					sessionInfo.setEndUserId(endUserId);
-					//sessionInfo.getReservations().add(ccInfo);
-					setSessionInfo(sessionInfo);
-
-					if (tracer.isInfoEnabled()) {
-						tracer.info(sessionInfo.toString());
-					}			
-
-					return; // we'll continue @ resumeOnCreditControlRequest(..)
+				if (reqAction == null) {
+					tracer.severe("[xx] Unable to retrieve Requested-Action AVP. Replying with MISSING_AVP.");
+					createCCA(ccServerActivity, ccr, new ArrayList<CreditControlInfo>(), DiameterResultCode.DIAMETER_MISSING_AVP);
+					sendCCA(cca, aci, true);
 				}
+				else if (reqAction == RequestedActionType.DIRECT_DEBITING) {
+					for (MultipleServicesCreditControlAvp mscc : ccr.getMultipleServicesCreditControls()) {
+						RequestedServiceUnitAvp rsu = mscc.getRequestedServiceUnit();
 
-				aci.detach(this.getSbbContext().getSbbLocalObject());
+						long[] serviceIds = mscc.getServiceIdentifiers();
+
+						ArrayList<CreditControlUnit> ccUnits = getRequestedUnits(ccr, rsu, serviceIds);
+
+						// Build Credit Control Info Request to ABMF
+						CreditControlInfo ccInfo = new CreditControlInfo();
+						ccInfo.setEventTimestamp(System.currentTimeMillis());
+						ccInfo.setEventType(ccr.getCcRequestType().toString());
+						ccInfo.setCcUnits(ccUnits);
+						ccInfo.setRequestNumber((int) ccr.getCcRequestNumber());
+						ccInfo.setRequestedAction(ccr.getRequestedAction());
+						ccInfo.setSessionId(sessionId);
+						ccInfo.setSubscriptionId(endUserId);
+						ccInfo.setSubscriptionIdType(endUserType);
+
+						// Call ABMF with this Credit Control Info
+						accountBalanceManagement.eventRequest(ccInfo);
+
+						// Store Credit Control Info in CMP
+						sessionInfo = getSessionInfo();
+						sessionInfo.setCcr(ccr);
+						sessionInfo.setEndUserId(endUserId);
+						//sessionInfo.getReservations().add(ccInfo);
+						setSessionInfo(sessionInfo);
+
+						if (tracer.isInfoEnabled()) {
+							tracer.info(sessionInfo.toString());
+						}
+
+						return; // we'll continue @ resumeOnCreditControlRequest(..)
+					}
+				}
+				else {
+					tracer.severe("[xx] Unsupported Requested-Action AVP (" + reqAction + "). Replying with DIAMETER_UNABLE_TO_COMPLY.");
+					createCCA(ccServerActivity, ccr, new ArrayList<CreditControlInfo>(), DiameterResultCode.DIAMETER_UNABLE_TO_COMPLY);
+					sendCCA(cca, aci, true);
+				}
 			}
 			catch (Exception e) {
 				tracer.severe("[xx] SID<" + ccr.getSessionId() + "> Failure processing Credit-Control-Request [EVENT]", e);
@@ -1305,138 +1057,12 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb, 
 				tracer.info("[>>] Generating CDR for SessionId '" + storedCCR.getSessionId() + "'...");
 			}
 
-			// Let's sum up the total used units and total used amount for the CDR.
-			ArrayList<CreditControlInfo> reserv = sessionInfo.getReservations(); 
-
-			long balanceBefore = 0;
-			long balanceAfter = 0;
-			long totalUsedUnitsInput = 0;
-			long totalUsedUnitsMoney = 0;
-			long totalUsedUnitsOutput = 0;
-			long totalUsedUnitsServiceSpecific = 0;
-			long totalUsedUnitsTime = 0;
-			long totalUsedUnitsTotal = 0;
-			long totalUsedAmountInput = 0;
-			long totalUsedAmountMoney = 0;
-			long totalUsedAmountOutput = 0;
-			long totalUsedAmountServiceSpecific = 0;
-			long totalUsedAmountTime = 0;
-			long totalUsedAmountTotal = 0;
-			
-			for (int i = 0; i < reserv.size(); i++) {
-				CreditControlInfo ccI = reserv.get(i);
-				
-				ArrayList<CreditControlUnit> ccUnits = ccI.getCcUnits();
-				for (int j = 0; j < ccUnits.size(); j++) {
-					CreditControlUnit ccUnit = ccUnits.get(j);
-					if (ccUnit.getUnitType() == CcUnitType.INPUT_OCTETS) {
-						totalUsedUnitsInput += ccUnit.getUsedUnits();
-						totalUsedAmountInput += ccUnit.getUsedAmount();
-					}
-					if (ccUnit.getUnitType() == CcUnitType.MONEY) {
-						totalUsedUnitsMoney += ccUnit.getUsedUnits();
-						totalUsedAmountMoney += ccUnit.getUsedAmount();
-					}
-					if (ccUnit.getUnitType()==CcUnitType.OUTPUT_OCTETS) {
-						totalUsedUnitsOutput += ccUnit.getUsedUnits();
-						totalUsedAmountOutput += ccUnit.getUsedAmount();
-					}
-					if (ccUnit.getUnitType()==CcUnitType.SERVICE_SPECIFIC_UNITS) {
-						totalUsedUnitsServiceSpecific += ccUnit.getUsedUnits();
-						totalUsedAmountServiceSpecific += ccUnit.getUsedAmount();
-					}
-					if (ccUnit.getUnitType()==CcUnitType.TIME) {
-						totalUsedUnitsTime += ccUnit.getUsedUnits();
-						totalUsedAmountTime += ccUnit.getUsedAmount();
-					}
-					if (ccUnit.getUnitType()==CcUnitType.TOTAL_OCTETS) {
-						totalUsedUnitsTotal += ccUnit.getUsedUnits();
-						totalUsedAmountTotal += ccUnit.getUsedAmount();
-					}
-				}
-
-				if (i == 0) {
-					balanceBefore = ccI.getBalanceBefore();
-				}
-				if (i == reserv.size() - 1) {
-					balanceAfter = ccI.getBalanceAfter();
-				}
+			try {
+				cdrGenerator.writeCDR(sessionInfo);
 			}
-
-
-			/**
-			 * Date Time of record (Format: yyyy-MM-dd'T'HH:mm:ss.SSSZ)
-			 * Diameter Origin Host
-			 * Diameter Origin Realm
-			 * Diameter Destination Host
-			 * Diameter Destination Realm
-			 * Service IDs
-			 * Session Start Time
-			 * Current Time in milliseconds
-			 * Session Duration
-			 * SessionID
-			 * Calling party type
-			 * Calling party info
-			 * Called party type
-			 * Called party info
-			 * Balance Before
-			 * Balance After
-			 * Total Input Octets Units Used
-			 * Total Input Octets Amount Charged
-			 * Total Money Units Used
-			 * Total Money Amount Charged
-			 * Total Output Octets Units Used
-			 * Total Output Octets Amount Charged
-			 * Total Service Specific Units Used
-			 * Total Service Specific Amount Charged
-			 * Total Time Units Used
-			 * Total Time Amount Charged
-			 * Total Total Octets Units Used
-			 * Total Total Octets Amount Charged
-			 * Event Type - Create/Interim/Terminate/Event (CDR's are only generated at Terminate for now)
-			 * Number of events in this session
-			 * Termination Cause 
-			 **/
-			String CDR = "";
-			String DELIMITER = ";";
-
-			SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ");
-			long elapsed = System.currentTimeMillis()-sessionInfo.getSessionStartTime();
-
-			CDR += df.format(new Date()) 							+ DELIMITER;
-			CDR += sessionInfo.getCcr().getOriginHost()				+ DELIMITER;
-			CDR += sessionInfo.getCcr().getOriginRealm()			+ DELIMITER;
-			CDR += sessionInfo.getCcr().getDestinationHost()		+ DELIMITER;
-			CDR += sessionInfo.getCcr().getDestinationRealm()		+ DELIMITER;
-			CDR += Arrays.toString(sessionInfo.getServiceIds())		+ DELIMITER;
-			CDR += sessionInfo.getSessionStartTime()				+ DELIMITER;
-			CDR += System.currentTimeMillis()					 	+ DELIMITER;
-			CDR += elapsed										 	+ DELIMITER;
-			CDR += sessionInfo.getCcr().getSessionId() 				+ DELIMITER;
-			CDR += sessionInfo.getEndUserType().getValue()			+ DELIMITER;
-			CDR += sessionInfo.getEndUserId()						+ DELIMITER;
-			// TODO: Get Destination Subscription ID Type and Value if available
-			CDR += sessionInfo.getEndUserType().getValue()			+ DELIMITER;
-			CDR += sessionInfo.getEndUserId()						+ DELIMITER;
-			CDR += balanceBefore									+ DELIMITER;
-			CDR += balanceAfter										+ DELIMITER;
-			CDR += totalUsedUnitsInput								+ DELIMITER;
-			CDR += totalUsedAmountInput								+ DELIMITER;
-			CDR += totalUsedUnitsMoney								+ DELIMITER;
-			CDR += totalUsedAmountMoney								+ DELIMITER;
-			CDR += totalUsedUnitsOutput								+ DELIMITER;
-			CDR += totalUsedAmountOutput							+ DELIMITER;
-			CDR += totalUsedUnitsServiceSpecific					+ DELIMITER;
-			CDR += totalUsedAmountServiceSpecific					+ DELIMITER;
-			CDR += totalUsedUnitsTime								+ DELIMITER;
-			CDR += totalUsedAmountTime								+ DELIMITER;
-			CDR += totalUsedUnitsTotal								+ DELIMITER;
-			CDR += totalUsedAmountTotal								+ DELIMITER;
-			CDR += storedCCR.getCcRequestType().getValue()			+ DELIMITER;
-			CDR += sessionInfo.getReservations().size()				+ DELIMITER;
-			CDR += storedCCR.getTerminationCause()					+ DELIMITER;
-			// TODO: Use a different logger.
-			tracer.info(CDR);
+			catch (Exception e) {
+				tracer.severe("Unable to generate CDR", e);
+			}
 		}
 	}
 
@@ -1470,7 +1096,7 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb, 
 
 	// --------- Call to decentralized rating engine ---------------------
 	@SuppressWarnings({ "rawtypes", "unchecked" })
-	private double getRateForService(RoCreditControlRequest ccr, RatingEngineClient ratingEngineManagement, long serviceId, long unitTypeId, long requestedUnits) {
+	private double getRateForService(RoCreditControlRequest ccr, long serviceId, long unitTypeId, long requestedUnits) {
 
 		// Let's make some variables available to be sent to the rating engine
 		String sessionId = ccr.getSessionId();
@@ -1661,6 +1287,223 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb, 
 					tracer.info("[><] Storing AVP with code " + avp.getCode() + " as '" + name + "' with value '" + value.toString() + "'");
 				}
 				ccInfo.addServiceInfo(name, value.toString());
+			}
+		}
+	}
+
+	private ArrayList<CreditControlUnit> getRequestedUnits(RoCreditControlRequest ccr, RequestedServiceUnitAvp rsu, long[] serviceIds) {
+		ArrayList<CreditControlUnit> ccRequestedUnits = new ArrayList<CreditControlUnit>();
+
+		long requestedUnits = 0;
+		// Input Octets
+		requestedUnits = rsu.getCreditControlInputOctets();
+		if (requestedUnits > 0) {
+			CreditControlUnit ccUnit = new CreditControlUnit();
+			ccUnit.setUnitType(CcUnitType.INPUT_OCTETS);
+			if (performRating) {
+				double rateForService = getRateForService(ccr, serviceIds[0], CcUnitType.INPUT_OCTETS.getValue(), requestedUnits);
+				ccUnit.setRateForService(rateForService);
+				// FIXME: This is not right. Rating should convert to monetary units...
+				ccUnit.setRequestedAmount((long) Math.ceil(requestedUnits * rateForService));
+			}
+			ccUnit.setRequestedUnits(requestedUnits);
+			ccRequestedUnits.add(ccUnit);
+		}
+		// Money
+		CcMoneyAvp moneyUnitsTmp = rsu.getCreditControlMoneyAvp();
+		if (moneyUnitsTmp != null) {
+			requestedUnits = moneyUnitsTmp.getUnitValue().getValueDigits();
+			if (requestedUnits > 0) {
+				CreditControlUnit ccUnit = new CreditControlUnit();
+				ccUnit.setUnitType(CcUnitType.MONEY);
+				if (performRating) {
+					double rateForService = getRateForService(ccr, serviceIds[0],CcUnitType.MONEY.getValue(), requestedUnits);
+					ccUnit.setRateForService(rateForService);
+					// FIXME: This is not right. Rating should convert to monetary units...
+					ccUnit.setRequestedAmount((long) Math.ceil(requestedUnits * rateForService));
+				}
+				ccUnit.setRequestedUnits(requestedUnits);
+				ccUnit.setCcMoney(rsu.getCreditControlMoneyAvp());
+				ccRequestedUnits.add(ccUnit);
+			}
+		}
+		// Output Octets
+		requestedUnits = rsu.getCreditControlOutputOctets();
+		if (requestedUnits > 0) {
+			CreditControlUnit ccUnit = new CreditControlUnit();
+			ccUnit.setUnitType(CcUnitType.OUTPUT_OCTETS);
+			if (performRating) {
+				double rateForService = getRateForService(ccr, serviceIds[0], CcUnitType.OUTPUT_OCTETS.getValue(), requestedUnits);
+				ccUnit.setRateForService(rateForService);
+				// FIXME: This is not right. Rating should convert to monetary units...
+				ccUnit.setRequestedAmount((long) Math.ceil(requestedUnits * rateForService));
+			}
+			ccUnit.setRequestedUnits(requestedUnits);
+			ccRequestedUnits.add(ccUnit);
+		}
+		// Service Specific Units
+		requestedUnits = rsu.getCreditControlServiceSpecificUnits();
+		if (requestedUnits > 0) {
+			CreditControlUnit ccUnit = new CreditControlUnit();
+			ccUnit.setUnitType(CcUnitType.SERVICE_SPECIFIC_UNITS);
+			if (performRating) {
+				double rateForService = getRateForService(ccr, serviceIds[0], CcUnitType.SERVICE_SPECIFIC_UNITS.getValue(), requestedUnits);
+				ccUnit.setRateForService(rateForService);
+				// FIXME: This is not right. Rating should convert to monetary units...
+				ccUnit.setRequestedAmount((long) Math.ceil(requestedUnits * rateForService));
+			}
+			ccUnit.setRequestedUnits(requestedUnits);
+			ccRequestedUnits.add(ccUnit);
+		}
+		// Time
+		requestedUnits = rsu.getCreditControlTime();
+		if (requestedUnits > 0) {
+			CreditControlUnit ccUnit = new CreditControlUnit();
+			ccUnit.setUnitType(CcUnitType.TIME);
+			if (performRating) {
+				double rateForService = getRateForService(ccr, serviceIds[0], CcUnitType.TIME.getValue(), requestedUnits);
+				ccUnit.setRateForService(rateForService);
+				// FIXME: This is not right. Rating should convert to monetary units...
+				ccUnit.setRequestedAmount((long) Math.ceil(requestedUnits * rateForService));
+			}
+			ccUnit.setRequestedUnits(requestedUnits);
+			ccRequestedUnits.add(ccUnit);
+		}
+		// Total Octets
+		requestedUnits = rsu.getCreditControlTotalOctets();
+		if (requestedUnits > 0) {
+			CreditControlUnit ccUnit = new CreditControlUnit();
+			ccUnit.setUnitType(CcUnitType.TOTAL_OCTETS);
+			if (performRating) {
+				double rateForService = getRateForService(ccr, serviceIds[0], CcUnitType.TOTAL_OCTETS.getValue(), requestedUnits);
+				ccUnit.setRateForService(rateForService);
+				// FIXME: This is not right. Rating should convert to monetary units...
+				ccUnit.setRequestedAmount((long) Math.ceil(requestedUnits * rateForService));
+			}
+			ccUnit.setRequestedUnits(requestedUnits);
+			ccRequestedUnits.add(ccUnit);
+		}
+
+		return ccRequestedUnits;
+	}
+
+	private void collectUsedUnits(UsedServiceUnitAvp[] usedUnits, ArrayList<CreditControlUnit> ccRequestedUnits, ArrayList<CreditControlUnit> reservedCCUnits) {
+		long usedUnitsInputCount = 0;
+		long usedUnitsMoneyCount = 0;
+		long usedUnitsOutputCount = 0;
+		long usedUnitsServiceSpecificCount = 0;
+		long usedUnitsTimeCount = 0;
+		long usedUnitsTotalCount = 0;
+
+		for (UsedServiceUnitAvp usedUnit : usedUnits) {
+			if (usedUnit.getCreditControlInputOctets() > 0) {
+				usedUnitsInputCount += usedUnit.getCreditControlInputOctets();
+				for (int i = 0; i < ccRequestedUnits.size(); i++) {
+					CreditControlUnit ccUnit = ccRequestedUnits.get(i);
+					if (ccUnit.getUnitType() == CcUnitType.INPUT_OCTETS) {
+						ccUnit.setUsedUnits(usedUnitsInputCount);
+					}
+					for (int j = 0; j < reservedCCUnits.size(); j++) {
+						CreditControlUnit reservedCCUnit = reservedCCUnits.get(j);
+						if (reservedCCUnit.getUnitType() == CcUnitType.INPUT_OCTETS) {
+							// Copy the reserved amount from the last session into this session so that ABMF can update used units.
+							ccUnit.setReservedUnits(reservedCCUnit.getReservedUnits());
+							ccUnit.setReservedAmount(reservedCCUnit.getReservedAmount());
+							ccUnit.setUsedAmount((long)Math.ceil(reservedCCUnit.getRateForService() * ccUnit.getUsedUnits()));
+						}
+					}
+				}
+			}
+			CcMoneyAvp moneyUnitsTmp = usedUnit.getCreditControlMoneyAvp();
+			if (moneyUnitsTmp != null && moneyUnitsTmp.getUnitValue().getValueDigits() > 0) {
+				usedUnitsMoneyCount += moneyUnitsTmp.getUnitValue().getValueDigits();
+				for (int i = 0; i < ccRequestedUnits.size(); i++) {
+					CreditControlUnit ccUnit = ccRequestedUnits.get(i);
+					if (ccUnit.getUnitType() == CcUnitType.MONEY) {
+						ccUnit.setUsedUnits(usedUnitsMoneyCount);
+					}
+					for (int j = 0; j < reservedCCUnits.size(); j++) {
+						CreditControlUnit reservedCCUnit = reservedCCUnits.get(j);
+						if (reservedCCUnit.getUnitType() == CcUnitType.MONEY) {
+							// Copy the reserved amount from the last session into this session so that ABMF can update used units.
+							ccUnit.setReservedUnits(reservedCCUnit.getReservedUnits());
+							ccUnit.setReservedAmount(reservedCCUnit.getReservedAmount());
+							ccUnit.setUsedAmount((long)Math.ceil(reservedCCUnit.getRateForService() * ccUnit.getUsedUnits()));
+						}
+					}
+				}
+			}
+			if (usedUnit.getCreditControlOutputOctets() > 0) {
+				usedUnitsOutputCount += usedUnit.getCreditControlOutputOctets();
+				for (int i = 0; i < ccRequestedUnits.size(); i++) {
+					CreditControlUnit ccUnit = ccRequestedUnits.get(i);
+					if (ccUnit.getUnitType() == CcUnitType.OUTPUT_OCTETS) {
+						ccUnit.setUsedUnits(usedUnitsOutputCount);
+					}
+					for (int j = 0; j < reservedCCUnits.size(); j++) {
+						CreditControlUnit reservedCCUnit = reservedCCUnits.get(j);
+						if (reservedCCUnit.getUnitType() == CcUnitType.OUTPUT_OCTETS){
+							// Copy the reserved amount from the last session into this session so that ABMF can update used units.
+							ccUnit.setReservedUnits(reservedCCUnit.getReservedUnits());
+							ccUnit.setReservedAmount(reservedCCUnit.getReservedAmount());
+							ccUnit.setUsedAmount((long)Math.ceil(reservedCCUnit.getRateForService() * ccUnit.getUsedUnits()));
+						}
+					}
+				}
+			}
+			if (usedUnit.getCreditControlServiceSpecificUnits() > 0) {
+				usedUnitsServiceSpecificCount += usedUnit.getCreditControlServiceSpecificUnits();
+				for (int i = 0; i < ccRequestedUnits.size(); i++) {
+					CreditControlUnit ccUnit = ccRequestedUnits.get(i);
+					if (ccUnit.getUnitType() == CcUnitType.SERVICE_SPECIFIC_UNITS) {
+						ccUnit.setUsedUnits(usedUnitsServiceSpecificCount);
+					}
+					for (int j = 0; j < reservedCCUnits.size(); j++) {
+						CreditControlUnit reservedCCUnit = reservedCCUnits.get(j);
+						if (reservedCCUnit.getUnitType() == CcUnitType.SERVICE_SPECIFIC_UNITS) {
+							// Copy the reserved amount from the last session into this session so that ABMF can update used units.
+							ccUnit.setReservedUnits(reservedCCUnit.getReservedUnits());
+							ccUnit.setReservedAmount(reservedCCUnit.getReservedAmount());
+							ccUnit.setUsedAmount((long)Math.ceil(reservedCCUnit.getRateForService() * ccUnit.getUsedUnits()));
+						}
+					}
+				}
+			}
+			if (usedUnit.getCreditControlTime() > 0) {
+				usedUnitsTimeCount += usedUnit.getCreditControlTime();
+				for (int i = 0; i < ccRequestedUnits.size(); i++) {
+					CreditControlUnit ccUnit = ccRequestedUnits.get(i);
+					if (ccUnit.getUnitType() == CcUnitType.TIME) {
+						ccUnit.setUsedUnits(usedUnitsTimeCount);
+					}
+					for (int j = 0; j < reservedCCUnits.size(); j++) {
+						CreditControlUnit reservedCCUnit = reservedCCUnits.get(j);
+						if (reservedCCUnit.getUnitType() == CcUnitType.TIME) {
+							// Copy the reserved amount from the last session into this session so that ABMF can update used units.
+							ccUnit.setReservedUnits(reservedCCUnit.getReservedUnits());
+							ccUnit.setReservedAmount(reservedCCUnit.getReservedAmount());
+							ccUnit.setUsedAmount((long)Math.ceil(reservedCCUnit.getRateForService() * ccUnit.getUsedUnits()));
+						}
+					}
+				}
+			}
+			if (usedUnit.getCreditControlTotalOctets() > 0) {
+				usedUnitsTotalCount += usedUnit.getCreditControlTotalOctets();
+				for (int i = 0; i < ccRequestedUnits.size(); i++) {
+					CreditControlUnit ccUnit = ccRequestedUnits.get(i);
+					if (ccUnit.getUnitType() == CcUnitType.TOTAL_OCTETS) {
+						ccUnit.setUsedUnits(usedUnitsTotalCount);
+					}
+					for (int j = 0; j < reservedCCUnits.size(); j++) {
+						CreditControlUnit reservedCCUnit = reservedCCUnits.get(j);
+						if (reservedCCUnit.getUnitType() == CcUnitType.TOTAL_OCTETS) {
+							// Copy the reserved amount from the last session into this session so that ABMF can update used units.
+							ccUnit.setReservedUnits(reservedCCUnit.getReservedUnits());
+							ccUnit.setReservedAmount(reservedCCUnit.getReservedAmount());
+							ccUnit.setUsedAmount((long)Math.ceil(reservedCCUnit.getRateForService() * ccUnit.getUsedUnits()));
+						}
+					}
+				}
 			}
 		}
 	}
