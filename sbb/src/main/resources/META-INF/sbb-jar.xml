@@ -123,6 +123,13 @@
 			<env-entry-value>true</env-entry-value>
 		</env-entry>
 
+		<env-entry>
+			<description>Generate CDR</description>
+			<env-entry-name>generateCDR</env-entry-name>
+			<env-entry-type>java.lang.Boolean</env-entry-type>
+			<env-entry-value>false</env-entry-value>
+		</env-entry>
+
 		<resource-adaptor-type-binding>
 			<resource-adaptor-type-ref>
 				<resource-adaptor-type-name>Diameter Ro</resource-adaptor-type-name>

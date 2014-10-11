@@ -149,50 +149,59 @@ public abstract class CDRGeneratorSbb extends BaseSbb implements Sbb, CDRGenerat
 		 * Number of events in this session
 		 * Termination Cause
 		 **/
-		String CDR = "";
+		StringBuffer cdr = new StringBuffer();
 		String DELIMITER = ";";
 
 		SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ");
 		long elapsed = System.currentTimeMillis()-sessionInfo.getSessionStartTime();
 
-		CDR += df.format(new Date()) 							+ DELIMITER;
-		CDR += sessionInfo.getCcr().getOriginHost()				+ DELIMITER;
-		CDR += sessionInfo.getCcr().getOriginRealm()			+ DELIMITER;
-		CDR += sessionInfo.getCcr().getDestinationHost()		+ DELIMITER;
-		CDR += sessionInfo.getCcr().getDestinationRealm()		+ DELIMITER;
-		CDR += Arrays.toString(sessionInfo.getServiceIds())		+ DELIMITER;
-		CDR += sessionInfo.getSessionStartTime()				+ DELIMITER;
-		CDR += System.currentTimeMillis()					 	+ DELIMITER;
-		CDR += elapsed										 	+ DELIMITER;
-		CDR += sessionInfo.getCcr().getSessionId() 				+ DELIMITER;
-		CDR += sessionInfo.getEndUserType().getValue()			+ DELIMITER;
-		CDR += sessionInfo.getEndUserId()						+ DELIMITER;
-		// TODO: Get Destination Subscription ID Type and Value if available
-		CDR += sessionInfo.getEndUserType().getValue()			+ DELIMITER;
-		CDR += sessionInfo.getEndUserId()						+ DELIMITER;
-		CDR += balanceBefore									+ DELIMITER;
-		CDR += balanceAfter										+ DELIMITER;
-		CDR += totalUsedUnitsInput								+ DELIMITER;
-		CDR += totalUsedAmountInput								+ DELIMITER;
-		CDR += totalUsedUnitsMoney								+ DELIMITER;
-		CDR += totalUsedAmountMoney								+ DELIMITER;
-		CDR += totalUsedUnitsOutput								+ DELIMITER;
-		CDR += totalUsedAmountOutput							+ DELIMITER;
-		CDR += totalUsedUnitsServiceSpecific					+ DELIMITER;
-		CDR += totalUsedAmountServiceSpecific					+ DELIMITER;
-		CDR += totalUsedUnitsTime								+ DELIMITER;
-		CDR += totalUsedAmountTime								+ DELIMITER;
-		CDR += totalUsedUnitsTotal								+ DELIMITER;
-		CDR += totalUsedAmountTotal								+ DELIMITER;
-		// FIXME? CDR += storedCCR.getCcRequestType().getValue()			+ DELIMITER;
-		CDR += sessionInfo.getReservations().size()				+ DELIMITER;
-		// FIXME? CDR += storedCCR.getTerminationCause()					+ DELIMITER;
+		try {
+			cdr.append(df.format(new Date())).append(DELIMITER);
+			cdr.append(sessionInfo.getCcr().getOriginHost()).append(DELIMITER);
+			cdr.append(sessionInfo.getCcr().getOriginRealm()).append(DELIMITER);
+			cdr.append(sessionInfo.getCcr().getDestinationHost()).append(DELIMITER);
+			cdr.append(sessionInfo.getCcr().getDestinationRealm()).append(DELIMITER);
+			cdr.append(Arrays.toString(sessionInfo.getServiceIds())).append(DELIMITER);
+			cdr.append(sessionInfo.getSessionStartTime()).append(DELIMITER);
+			cdr.append(System.currentTimeMillis()).append(DELIMITER);
+			cdr.append(elapsed).append(DELIMITER);
+			cdr.append(sessionInfo.getCcr().getSessionId()).append(DELIMITER);
+			cdr.append(sessionInfo.getEndUserType().getValue()).append(DELIMITER);
+			cdr.append(sessionInfo.getEndUserId()).append(DELIMITER);
+			// TODO: Get Destination Subscription ID Type and Value if available
+			cdr.append(sessionInfo.getEndUserType().getValue()).append(DELIMITER);
+			cdr.append(sessionInfo.getEndUserId()).append(DELIMITER);
+			cdr.append(balanceBefore).append(DELIMITER);
+			cdr.append(balanceAfter).append(DELIMITER);
+			cdr.append(totalUsedUnitsInput).append(DELIMITER);
+			cdr.append(totalUsedAmountInput).append(DELIMITER);
+			cdr.append(totalUsedUnitsMoney).append(DELIMITER);
+			cdr.append(totalUsedAmountMoney).append(DELIMITER);
+			cdr.append(totalUsedUnitsOutput).append(DELIMITER);
+			cdr.append(totalUsedAmountOutput).append(DELIMITER);
+			cdr.append(totalUsedUnitsServiceSpecific).append(DELIMITER);
+			cdr.append(totalUsedAmountServiceSpecific).append(DELIMITER);
+			cdr.append(totalUsedUnitsTime).append(DELIMITER);
+			cdr.append(totalUsedAmountTime).append(DELIMITER);
+			cdr.append(totalUsedUnitsTotal).append(DELIMITER);
+			cdr.append(totalUsedAmountTotal).append(DELIMITER);
+			// FIXME? cdr.append(storedCCR.getCcRequestType().getValue()).append(DELIMITER);
+			cdr.append(sessionInfo.getReservations().size()).append(DELIMITER);
+			// FIXME? cdr.append(storedCCR.getTerminationCause()).append(DELIMITER);
+		}
+		catch (Exception e) {
+			tracer.warning("Failure while trying to generate CDR");
+		}
 
 		// TODO: Use a different logger.
-		tracer.info(CDR);
+		if (tracer.isInfoEnabled()) {
+			tracer.info(cdr.toString());
+		}
 	}
 
 	public void writeCDR(String message) {
-		tracer.info(message);
+		if (tracer.isInfoEnabled()) {
+			tracer.info(message);
+		}
 	}
 }

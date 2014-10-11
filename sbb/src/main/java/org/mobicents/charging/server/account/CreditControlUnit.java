@@ -24,13 +24,13 @@ package org.mobicents.charging.server.account;
 
 import java.io.Serializable;
 
-import net.java.slee.resource.diameter.cca.events.avp.CcMoneyAvp;
 import net.java.slee.resource.diameter.cca.events.avp.CcUnitType;
 
 /**
  * Helper class for handling unit determination for each MSCC.
- * 
+ *
  * @author rsaranathan
+ * @author ammendonca
  */
 public class CreditControlUnit implements Serializable {
 
@@ -38,31 +38,25 @@ public class CreditControlUnit implements Serializable {
 
 	/**
 	 * [ CC-Time ]
-     * [ CC-Money ]
-     * [ CC-Total-Octets ]
-     * [ CC-Input-Octets ]
-     * [ CC-Output-Octets ]
-     * [ CC-Service-Specific-Units ]
+	 * [ CC-Money ]
+	 * [ CC-Total-Octets ]
+	 * [ CC-Input-Octets ]
+	 * [ CC-Output-Octets ]
+	 * [ CC-Service-Specific-Units ]
 	 */
 	private CcUnitType unitType;
-	
+
 	private long requestedUnits;
-	
 	private long requestedAmount;
-	
+
 	private long reservedUnits;
-	
 	private long reservedAmount;
-	
+
 	private long usedUnits;
-	
 	private long usedAmount;
-	
+
 	private double rateForService;
-	
-	// Details about the CC Money.
-	private CcMoneyAvp ccMoney;
-	
+
 	public CcUnitType getUnitType() {
 		return unitType;
 	}
@@ -74,7 +68,6 @@ public class CreditControlUnit implements Serializable {
 	public long getRequestedUnits() {
 		return requestedUnits;
 	}
-
 	public void setRequestedUnits(long requestedUnits) {
 		this.requestedUnits = requestedUnits;
 	}
@@ -82,7 +75,6 @@ public class CreditControlUnit implements Serializable {
 	public long getRequestedAmount() {
 		return requestedAmount;
 	}
-
 	public void setRequestedAmount(long requestedAmount) {
 		this.requestedAmount = requestedAmount;
 	}
@@ -90,7 +82,6 @@ public class CreditControlUnit implements Serializable {
 	public long getReservedUnits() {
 		return reservedUnits;
 	}
-
 	public void setReservedUnits(long reservedUnits) {
 		this.reservedUnits = reservedUnits;
 	}
@@ -98,7 +89,6 @@ public class CreditControlUnit implements Serializable {
 	public long getReservedAmount() {
 		return reservedAmount;
 	}
-
 	public void setReservedAmount(long reservedAmount) {
 		this.reservedAmount = reservedAmount;
 	}
@@ -106,7 +96,6 @@ public class CreditControlUnit implements Serializable {
 	public long getUsedUnits() {
 		return usedUnits;
 	}
-
 	public void setUsedUnits(long usedUnits) {
 		this.usedUnits = usedUnits;
 	}
@@ -114,7 +103,6 @@ public class CreditControlUnit implements Serializable {
 	public long getUsedAmount() {
 		return usedAmount;
 	}
-
 	public void setUsedAmount(long usedAmount) {
 		this.usedAmount = usedAmount;
 	}
@@ -122,36 +110,22 @@ public class CreditControlUnit implements Serializable {
 	public double getRateForService() {
 		return rateForService;
 	}
-
 	public void setRateForService(double rateForService) {
 		this.rateForService = rateForService;
-	}
-	
-	public CcMoneyAvp getCcMoney() {
-		return ccMoney;
-	}
-
-	public void setCcMoney(CcMoneyAvp ccMoney) {
-		this.ccMoney = ccMoney;
 	}
 
 	@Override
 	public String toString() {
-	
-		String ret = "CreditControlUnits[UnitType=" + unitType +
-				"; RequestedUnits=" + requestedUnits +
-				"; RequestedAmount=" + requestedAmount +
-				"; ReservedUnits=" + reservedUnits +
-				"; ReservedAmount=" + reservedAmount +
-				"; UsedUnits=" + usedUnits +
-				"; UsedAmount=" + usedAmount +
-				"; RateForService=" + rateForService;
-		if (ccMoney != null) {
-			ret += "; CC-Money-AVP=" + ccMoney;
-		}
-		ret +=	"]";
-		return ret;
-		
+		StringBuilder sb = new StringBuilder("CreditControlUnits[UnitType=").append(unitType).
+				append("; RequestedUnits=").append(requestedUnits).
+				append("; RequestedAmount=").append(requestedAmount).
+				append("; ReservedUnits=").append(reservedUnits).
+				append("; ReservedAmount=").append(reservedAmount).
+				append("; UsedUnits=").append(usedUnits).
+				append("; UsedAmount=").append(usedAmount).
+				append("; RateForService=").append(rateForService).
+				append("]");
+		return sb.toString();
 	}
 
 }

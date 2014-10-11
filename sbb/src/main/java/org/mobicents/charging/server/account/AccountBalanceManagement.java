@@ -73,7 +73,8 @@ public interface AccountBalanceManagement {
 	/**
 	 * Dump Credit Control Session information on to the console for that specific user.
 	 * 
-	 * @param usersRegExp
+	 * @param ccInfo
+	 * @param uad
 	 */
 	void dump(CreditControlInfo ccInfo, UserAccountData uad);
 	

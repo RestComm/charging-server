@@ -262,6 +262,10 @@ public class CreditControlInfo implements Serializable {
 	// Support for service specific values
 	HashMap<String, Object> serviceInfo = new HashMap<String, Object>();
 
+	public String[] getServiceInfoKeys() {
+		return serviceInfo.keySet().toArray(new String[serviceInfo.keySet().size()]);
+	}
+
 	public Object addServiceInfo(String name, Object value) {
 		return serviceInfo.put(name, value);
 	}

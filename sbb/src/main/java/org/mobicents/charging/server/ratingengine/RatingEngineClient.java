@@ -28,8 +28,14 @@ import java.util.HashMap;
  * Interface to retrieve the rate from an external Rating Engine.
  * 
  * @author rsaranathan
+ * @author ammendonca
  */
 public interface RatingEngineClient {
+
+	/**
+	 * Initiates the data source
+	 */
+	public void init();
 
 	@SuppressWarnings("rawtypes")
 	RatingInfo getRateForService(HashMap params);

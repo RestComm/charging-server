@@ -31,6 +31,8 @@ import javax.slee.Sbb;
 import javax.slee.SbbContext;
 import javax.slee.facilities.Tracer;
 import java.util.HashMap;
+import java.util.Map;
+import java.util.Properties;
 
 /**
  * SBB for Rating Engine Client implementation sample. This always returns success.
@@ -44,10 +46,50 @@ public class LocalRatingEngineSbb extends BaseSbb implements Sbb, RatingEngineCl
 	private SbbContextExt sbbContext;
 
 	public void setSbbContext(SbbContext context) {
-
 		this.sbbContext = (SbbContextExt) context;
 		this.tracer = sbbContext.getTracer("CS-RF-SMPL");
 	}
+
+	private HashMap<Integer, Integer> serviceIdUnits;
+
+	@Override
+	public void init() {
+		// Load service id units (Unit Determination)
+		// TODO: Need to port this to database.
+		try {
+			Properties props = new Properties();
+			props.load(this.getClass().getClassLoader().getResourceAsStream("serviceid-units.properties"));
+			serviceIdUnits = new HashMap<Integer, Integer>();
+			for (Object key : props.keySet()) {
+				String serviceId = ((String) key).trim();
+				String unitTypeID = props.getProperty(serviceId).trim();
+				serviceIdUnits.put(Integer.valueOf(serviceId),Integer.valueOf(unitTypeID));
+			}
+			if (tracer.isInfoEnabled()) {
+				tracer.info("[--] Loaded service id units from properties file. Dumping info.");
+			}
+			// dump info...
+			for (Object o : serviceIdUnits.entrySet()) {
+				Map.Entry entry = (Map.Entry) o;
+				String key = null;
+				String val = null;
+				if (entry.getKey() != null) {
+					key = entry.getKey().toString();
+				}
+				if (entry.getValue() != null) {
+					val = entry.getValue().toString();
+				}
+				if (tracer.isInfoEnabled()) {
+					tracer.info("[--] Service-ID:" + key + " => Unit-Type-ID:" + val);
+				}
+			}
+		}
+		catch (Exception e) {
+			tracer.warning("[!!] Unable to load service id units from properties file. Allowing everything!", e);
+			// FIXME: Need something to bypass or use default unit determination
+		}
+	}
+
 	@Override
 	public RatingInfo getRateForService(HashMap params) {
 		String sessionId = (String) params.get("SessionId");

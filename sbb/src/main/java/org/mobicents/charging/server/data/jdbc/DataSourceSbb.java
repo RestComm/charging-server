@@ -80,36 +80,55 @@ public abstract class DataSourceSbb extends BaseSbb implements Sbb, DataSource {
 		boolean tableAlreadyExists = false;
 		try {
 			connection = jdbcRA.getConnection();
-			tracer.info("[><] Got JDBC Connection");
+			if (tracer.isFineEnabled()) {
+				tracer.fine("[><] Got JDBC Connection");
+			}
 			try { 
 				PreparedStatement preparedStatement = connection.prepareStatement(DataSourceSchemaInfo._QUERY_EXISTS);
 				preparedStatement.execute();
 				ResultSet resultSet = preparedStatement.getResultSet();
 				if (resultSet.next()) {
-					tracer.info("[><] Table " + DataSourceSchemaInfo._TBL_USERS + " found in schema.");
-					//tableAlreadyExists = true;
+					if (tracer.isFineEnabled()) {
+						tracer.fine("[><] Table " + DataSourceSchemaInfo._TBL_USERS + " found in schema.");
+					}
+					tableAlreadyExists = true;
 				}
 			}
 			catch (SQLException e) {
 				// it's ok, maybe table does not exist. no need to do anything here. 
-				tracer.warning("failed to query db schema", e);
+				if (tracer.isFineEnabled()) {
+					tracer.fine("[><] Failed to retrieve data from users table. Probably it doesn't exist yet. We'll create.", e);
+				}
 			}
 			
 			if (!tableAlreadyExists) {
-				connection.createStatement().execute(DataSourceSchemaInfo._QUERY_DROP);
-				tracer.info("[><] Executed DROP Statement (" + DataSourceSchemaInfo._QUERY_DROP + ")");
-	
+				try {
+					connection.createStatement().execute(DataSourceSchemaInfo._QUERY_DROP);
+					if (tracer.isFineEnabled()) {
+						tracer.fine("[><] Executed DROP Statement (" + DataSourceSchemaInfo._QUERY_DROP + ")");
+					}
+				}
+				catch (SQLException e) {
+					// Might happen.. we just want to make sure to drop if it exists and it's empty
+				}
+
 				connection.createStatement().execute(DataSourceSchemaInfo._QUERY_CREATE);
-				tracer.info("[><] Executed CREATE Statement (" + DataSourceSchemaInfo._QUERY_CREATE + ")");
+				if (tracer.isFineEnabled()) {
+					tracer.fine("[><] Executed CREATE Statement (" + DataSourceSchemaInfo._QUERY_CREATE + ")");
+				}
 			}
 		}
 		catch (SQLException e) {
-			tracer.warning("failed to create db schema", e);
+			tracer.warning("[!!] Unable to create the users table.", e);
 		}
 		finally {
 			try {
-				connection.close();
-				tracer.info("[><] Closed JDBC Connection");
+				if (connection != null) {
+					connection.close();
+					if (tracer.isFineEnabled()) {
+						tracer.info("[><] Closed JDBC Connection");
+					}
+				}
 			}
 			catch (SQLException e) {
 				tracer.severe("[xx] Failed to close JDBC Connection", e);
@@ -119,7 +138,9 @@ public abstract class DataSourceSbb extends BaseSbb implements Sbb, DataSource {
 
 	@Override
 	public void getUserAccountData(String msisdn) {
-		tracer.info("[><] Calling getUserAccountData(" + msisdn + ")");
+		if (tracer.isInfoEnabled()) {
+			tracer.info("[><] Calling getUserAccountData(" + msisdn + ")");
+		}
 		executeTask(new GetAccountDataJdbcTask(msisdn, tracer));
 	}
 

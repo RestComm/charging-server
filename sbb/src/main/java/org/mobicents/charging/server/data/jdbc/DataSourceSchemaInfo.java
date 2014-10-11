@@ -32,7 +32,7 @@ public class DataSourceSchemaInfo {
 
 	// --- SQL Tables and Columns Definition ----------------------------------
 
-	public static final String _TBL_USERS = "MC_CS_USERS";
+	public static final String _TBL_USERS = "CONCHA_USERS";
 
 	public static final String _COL_MSISDN = "MSISDN";
 	public static final String _COL_BALANCE = "BALANCE";

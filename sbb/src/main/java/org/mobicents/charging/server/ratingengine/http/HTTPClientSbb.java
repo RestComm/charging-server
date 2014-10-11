@@ -36,7 +36,6 @@ import javax.naming.NamingException;
 import javax.slee.ActivityContextInterface;
 import javax.slee.Sbb;
 import javax.slee.SbbContext;
-import javax.slee.SbbLocalObject;
 import javax.slee.facilities.Tracer;
 import javax.slee.resource.StartActivityException;
 import javax.xml.parsers.DocumentBuilder;
@@ -113,6 +112,11 @@ public abstract class HTTPClientSbb extends BaseSbb implements Sbb, RatingEngine
 	}
 
 	// CMP Fields
+
+	@Override
+	public void init() {
+		// NO OP
+	}
 
 	// Event handler methods
 	public void onResponseEvent(ResponseEvent event, ActivityContextInterface aci) {
