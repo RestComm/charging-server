@@ -45,6 +45,9 @@
 				<cmp-field>
 					<cmp-field-name>sessionInfo</cmp-field-name>
 				</cmp-field>
+				<cmp-field>
+					<cmp-field-name>timerID</cmp-field-name>
+				</cmp-field>
 				<get-child-relation-method>
 					<description>AccountBalanceManagement</description>
 					<sbb-alias-ref>AccountBalanceManagement</sbb-alias-ref>
