@@ -24,6 +24,8 @@ public class ChargingServerManagementAPI {
 
 	private static final String DS_CONTEXT = "java:/DefaultDS";
 
+	private static final String USERS_TABLE = "CONCHA_USERS";
+
 	private static DataSource datasource = null;
 
 	private Connection getConnection() {
@@ -69,7 +71,7 @@ public class ChargingServerManagementAPI {
 		}
 		Connection connection = getConnection();
 		try {
-			ResultSet rSet = connection.createStatement().executeQuery("SELECT * FROM MC_CS_USERS");
+			ResultSet rSet = connection.createStatement().executeQuery("SELECT * FROM " + USERS_TABLE);
 			result = ResultSetConverter.convert(rSet).toString();
 		}
 		catch (Exception e) {
@@ -104,7 +106,7 @@ public class ChargingServerManagementAPI {
 		}
 		Connection connection = getConnection();
 		try {
-            PreparedStatement ps = connection.prepareStatement("UPDATE MC_CS_USERS SET BALANCE = ? WHERE MSISDN = ?");
+            PreparedStatement ps = connection.prepareStatement("UPDATE " + USERS_TABLE + " SET BALANCE = ? WHERE MSISDN = ?");
             ps.setLong(1, value);
             ps.setString(2, msisdn);
             int updated = ps.executeUpdate();
@@ -143,7 +145,7 @@ public class ChargingServerManagementAPI {
 		}
 		Connection connection = getConnection();
 		try {
-			int updated = connection.createStatement().executeUpdate("UPDATE MC_CS_USERS SET RESERVED = " + value + " WHERE MSISDN = " + msisdn);
+			int updated = connection.createStatement().executeUpdate("UPDATE " + USERS_TABLE + " SET RESERVED = " + value + " WHERE MSISDN = " + msisdn);
 			result = (updated == 1 ? "OK" : "FAIL");
 		}
 		catch (Exception e) {
@@ -177,7 +179,7 @@ public class ChargingServerManagementAPI {
 		}
         Connection connection = getConnection();
         try {
-            int updated = connection.createStatement().executeUpdate("UPDATE MC_CS_USERS SET BALANCE = BALANCE + RESERVED, RESERVED = 0 WHERE MSISDN = " + msisdn);
+            int updated = connection.createStatement().executeUpdate("UPDATE " + USERS_TABLE + " SET BALANCE = BALANCE + RESERVED, RESERVED = 0 WHERE MSISDN = " + msisdn);
             result = (updated == 1 ? "OK" : "FAIL");
         }
         catch (Exception e) {
@@ -212,7 +214,7 @@ public class ChargingServerManagementAPI {
         Connection connection = getConnection();
         try {
             // TODO: SELECT first so that we can return the deleted user information ?
-            int updated = connection.createStatement().executeUpdate("DELETE FROM MC_CS_USERS WHERE MSISDN = " + msisdn);
+            int updated = connection.createStatement().executeUpdate("DELETE FROM " + USERS_TABLE + " WHERE MSISDN = " + msisdn);
             result = (updated == 1 ? "OK" : "FAIL");
         }
         catch (Exception e) {
@@ -260,7 +262,7 @@ public class ChargingServerManagementAPI {
 		}
         Connection connection = getConnection();
         try {
-            PreparedStatement ps = connection.prepareStatement("INSERT INTO MC_CS_USERS (MSISDN, BALANCE, RESERVED, USER_STATUS) VALUES (?, ?, ?, ?)");
+            PreparedStatement ps = connection.prepareStatement("INSERT INTO " + USERS_TABLE + " (MSISDN, BALANCE, RESERVED, USER_STATUS) VALUES (?, ?, ?, ?)");
             ps.setString(1, msisdn);
             ps.setLong(2, balance);
 			ps.setLong(3, 0);

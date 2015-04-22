@@ -1191,6 +1191,9 @@ public abstract class DiameterChargingServerSbb extends BaseSbb implements Sbb, 
 						// FIXME: This is not right. Rating should convert to monetary units...
 						ccUnit.setRequestedAmount((long) Math.ceil(requestedUnits * rateForService));
 					}
+          else {
+            ccUnit.setRequestedAmount(requestedUnits);
+          }
 					ccUnit.setRequestedUnits(requestedUnits);
 					ccRequestedUnits.add(ccUnit);
 				}
