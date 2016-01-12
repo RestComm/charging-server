@@ -1,5 +1,5 @@
 # charging-server
-Mobicents Charging Server
+RestComm Charging Server
 
 ![](https://dl.dropbox.com/u/3037225/mobicents-charging-server/charging-server-architecture.png)
 
