@@ -13,7 +13,7 @@
 
 	<artifactId>charging-server-DU</artifactId>
 
-	<name>Mobicents :: ${project.artifactId} v${project.version}</name>
+	<name>Restcomm :: ${project.artifactId} v${project.version}</name>
 
 	<dependencies>
 		<dependency>

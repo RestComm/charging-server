@@ -8,7 +8,7 @@
 	<parent>
 		<groupId>org.mobicents</groupId>
 		<artifactId>mobicents-parent</artifactId>
-		<version>2.22</version>
+		<version>2.27.25</version>
 	</parent>
 
 	<groupId>org.mobicents.applications</groupId>
@@ -17,7 +17,7 @@
 
 	<packaging>pom</packaging>
 
-	<name>Mobicents :: ${project.artifactId} v${project.version}</name>
+	<name>Restcomm :: ${project.artifactId} v${project.version}</name>
 
 	<modules>
 		<module>sbb</module>
@@ -26,7 +26,10 @@
 	</modules>
 
 	<properties>
-		<mobicents.jain-slee.version>2.7.0.FINAL</mobicents.jain-slee.version>
+		<restcomm.jain-slee.version>2.8.13</restcomm.jain-slee.version>
+		<restcomm.diameter-ra.version>2.8.15</restcomm.diameter-ra.version>
+		<restcomm.jdbc-ra.version>2.8.3</restcomm.jdbc-ra.version>
+		<restcomm.http-ra.version>2.8.5</restcomm.http-ra.version>
 	</properties>
 
 	<dependencyManagement>
@@ -34,22 +37,22 @@
 			<dependency>
 				<groupId>org.mobicents.resources</groupId>
 				<artifactId>mobicents-slee-ra-diameter-cca-ratype</artifactId>
-				<version>2.7.1.FINAL</version>
+				<version>${restcomm.diameter-ra.version}</version>
 			</dependency>
 			<dependency>
 				<groupId>org.mobicents.resources</groupId>
 				<artifactId>mobicents-slee-ra-diameter-ro-ratype</artifactId>
-				<version>2.7.1.FINAL</version>
+				<version>${restcomm.diameter-ra.version}</version>
 			</dependency>
 			<dependency>
 				<groupId>org.mobicents.resources</groupId>
 				<artifactId>mobicents-slee-ra-jdbc-ratype</artifactId>
-				<version>1.0.0.FINAL</version>
+				<version>${restcomm.jdbc-ra.version}</version>
 			</dependency>
 			<dependency>
 				<groupId>org.mobicents.resources</groupId>
 				<artifactId>http-client-ratype</artifactId>
-				<version>2.5.0.FINAL</version>
+				<version>${restcomm.http-ra.version}</version>
 			</dependency>
 		</dependencies>
 	</dependencyManagement>
@@ -90,4 +93,24 @@
 		</plugins>
 	</build>
 
+	<repositories>
+                <repository>
+                        <id>mobicents-public-repository-group</id>
+                        <name>Mobicents Public Maven Repository Group</name>
+                        <url>https://oss.sonatype.org/content/groups/public</url>
+                        <layout>default</layout>
+                        <releases>
+                                <enabled>true</enabled>
+                                <updatePolicy>never</updatePolicy>
+                        </releases>
+                        <snapshots>
+                                <enabled>true</enabled>
+                                <updatePolicy>never</updatePolicy>
+                        </snapshots>
+                </repository>
+                <repository>
+				    <id>java.net</id>
+				    <url>http://download.java.net/maven/2/</url>
+				</repository>
+        </repositories>
 </project>

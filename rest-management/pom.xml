@@ -14,7 +14,7 @@
 
 	<packaging>war</packaging>
 
-	<name>Mobicents :: ${pom.artifactId} v${pom.version}</name>
+	<name>Restcomm :: ${pom.artifactId} v${pom.version}</name>
 
 	<dependencies>
 		<dependency>
